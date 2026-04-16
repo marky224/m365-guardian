@@ -63,12 +63,16 @@ class LLMService:
 
     def _configure_litellm(self):
         """Set LiteLLM environment based on config."""
+        import os
         litellm.set_verbose = False
         if config.llm.provider == "anthropic":
             litellm.anthropic_key = config.llm.api_key
         elif config.llm.provider == "azure_openai":
-            import os
             litellm.azure_key = os.getenv("AZURE_OPENAI_API_KEY", "")
+        elif config.llm.provider == "xai":
+            os.environ["XAI_API_KEY"] = config.llm.api_key
+        elif config.llm.provider == "openai":
+            os.environ["OPENAI_API_KEY"] = config.llm.api_key
 
     async def chat(
         self,

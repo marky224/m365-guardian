@@ -14,7 +14,7 @@ from msgraph import GraphServiceClient
 from msgraph.generated.models.user import User
 from msgraph.generated.models.password_profile import PasswordProfile
 from msgraph.generated.models.assigned_license import AssignedLicense
-from msgraph.generated.models.assign_license_post_request_body import (
+from msgraph.generated.users.item.assign_license.assign_license_post_request_body import (
     AssignLicensePostRequestBody,
 )
 

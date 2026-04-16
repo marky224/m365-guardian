@@ -87,6 +87,13 @@ python -m backend.app
 # Health check: http://localhost:8080/health
 ```
 
+### Configuration notes
+
+- **LLM Provider**: Defaults to xAI (Grok). Set `LLM_PROVIDER` and the corresponding API key in `.env`.
+- **Bot Type**: Uses `SingleTenant` (MultiTenant is deprecated by Azure).
+- **Azure Region**: Deployed to `centralus` (eastus had quota limitations).
+- **IP Restriction**: The App Service is locked to specific IPs via access restrictions.
+
 ### 4. Deploy to Azure
 
 Follow the complete guide in `docs/03_DEPLOYMENT_GUIDE.md`.
@@ -122,10 +129,10 @@ M365 Guardian supports one-click LLM swapping via LiteLLM:
 
 | Provider | `LLM_PROVIDER` | Required Env Vars |
 |----------|----------------|-------------------|
-| Anthropic (default) | `anthropic` | `ANTHROPIC_API_KEY` |
+| xAI / Grok (default) | `xai` | `XAI_API_KEY` |
+| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` |
 | Azure OpenAI | `azure_openai` | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` |
 | OpenAI | `openai` | `OPENAI_API_KEY` |
-| xAI (Grok) | `xai` | `XAI_API_KEY` |
 
 ## Security Principles
 

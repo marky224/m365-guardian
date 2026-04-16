@@ -43,7 +43,13 @@ class LLMConfig:
     def __post_init__(self):
         self.provider = os.getenv("LLM_PROVIDER", "anthropic")
         self.model = os.getenv("LLM_MODEL", "claude-sonnet-4-20250514")
-        self.api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        key_map = {
+            "anthropic": "ANTHROPIC_API_KEY",
+            "xai": "XAI_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "azure_openai": "AZURE_OPENAI_API_KEY",
+        }
+        self.api_key = os.getenv(key_map.get(self.provider, "ANTHROPIC_API_KEY"), "")
         self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "4096"))
         self.temperature = float(os.getenv("LLM_TEMPERATURE", "0.1"))
 
@@ -122,8 +128,8 @@ class AppConfig:
 
     def validate(self) -> list[str]:
         errors = self.azure_ad.validate()
-        if not self.llm.api_key and self.llm.provider == "anthropic":
-            errors.append("ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic")
+        if not self.llm.api_key:
+            errors.append(f"API key is required for LLM_PROVIDER={self.llm.provider}")
         return errors
 
 
