@@ -5,3 +5,7 @@ __pycache__/
 .idea/
 *.zip
 node_modules/
+
+build-logs/
+.azure/
+teams-check/
