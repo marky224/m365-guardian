@@ -57,8 +57,6 @@ m365-guardian/
 │   ├── 02_TOOL_SCHEMAS.json      # All 18 tool/function definitions
 │   ├── 03_DEPLOYMENT_GUIDE.md    # Step-by-step Azure deployment
 │   └── 04_SAMPLE_CONVERSATIONS.md # PoC scenario conversation flows
-├── deployment/
-│   └── configure-ip-restrictions.ps1  # Azure IP restriction setup script
 ├── .env.template                 # Environment variable template
 ├── pyproject.toml                # Python project configuration
 └── README.md                     # This file
@@ -100,7 +98,7 @@ python -m backend.app
 
 Follow the complete guide in `docs/03_DEPLOYMENT_GUIDE.md`.
 
-## Initial Scenarios
+## PoC Scenarios
 
 | # | Scenario | Tools Used |
 |---|----------|------------|
@@ -141,32 +139,8 @@ M365 Guardian supports one-click LLM swapping via LiteLLM:
 - **Mandatory confirmation** — every write action requires explicit `YES`
 - **Least-privilege** — Graph permissions are scoped to exactly what's needed
 - **Full audit trail** — every action logged with who, what, when, and transcript
-- **IP restriction** — dual-layer access control (Azure-level + application middleware) with blocked attempts logged to Cosmos DB audit trail
-
-## IP Access Restrictions
-
-M365 Guardian supports two layers of IP restriction:
-
-**Azure-level** — App Service access restrictions block unauthorized IPs before they reach the application. Configure via CLI or the included deployment script:
-
-```bash
-# Add allowed IPs
-az webapp config access-restriction add --name m365guardian-app --resource-group rg-m365guardian --priority 100 --rule-name "MyIP" --action Allow --ip-address YOUR_IP/32
-
-# Allow Bot Framework (required for Teams)
-az webapp config access-restriction add --name m365guardian-app --resource-group rg-m365guardian --priority 500 --rule-name "BotFramework" --action Allow --service-tag AzureBotService
-
-# Deny all others
-az webapp config access-restriction set --name m365guardian-app --resource-group rg-m365guardian --default-action Deny
-```
-
-**Application-level** — Middleware inside the app provides a second layer of defense. Set the `ALLOWED_IPS` environment variable (comma-separated). When empty, this layer is disabled.
-
-```bash
-ALLOWED_IPS=XXX.XXX.XX.XXX,XXX.XXX.XX.XXX
-```
-
-Blocked IP attempts are logged to the Cosmos DB audit trail with client IP, request path, HTTP method, and user agent. Query blocked attempts via the chatbot: `"Show me blocked IP attempts from the audit log"`.
+- **No data leakage** — passwords masked, secrets never echoed
+- **Provider isolation** — no customer data used for LLM training
 
 ## Tool Inventory (18 Functions)
 
