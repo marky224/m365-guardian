@@ -120,11 +120,14 @@ class AppConfig:
     web_port: int = 8080
     base_url: str = ""
     log_level: str = "INFO"
+    allowed_ips: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         self.web_port = int(os.getenv("WEB_APP_PORT", "8080"))
         self.base_url = os.getenv("WEB_APP_BASE_URL", "http://localhost:8080")
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
+        raw_ips = os.getenv("ALLOWED_IPS", "")
+        self.allowed_ips = [ip.strip() for ip in raw_ips.split(",") if ip.strip()]
 
     def validate(self) -> list[str]:
         errors = self.azure_ad.validate()

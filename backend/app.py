@@ -31,6 +31,7 @@ logger = logging.getLogger("m365guardian")
 adapter_settings = BotFrameworkAdapterSettings(
     app_id=config.bot.app_id,
     app_password=config.bot.app_password,
+    channel_auth_tenant=config.azure_ad.tenant_id,
 )
 adapter = BotFrameworkAdapter(adapter_settings)
 
@@ -43,6 +44,56 @@ adapter.on_turn_error = on_error
 
 # Bot instance
 bot = GuardianBot()
+
+# Shared audit service for IP restriction logging
+_ip_audit = AuditService()
+
+
+# ── IP Restriction Middleware ────────────────────────────────────────
+
+@web.middleware
+async def ip_restriction_middleware(request, handler):
+    """Block requests from IPs not in the allowlist and log to audit trail."""
+    if not config.allowed_ips:
+        return await handler(request)
+
+    # Get client IP (handles Azure proxy headers)
+    client_ip = (
+        request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or request.remote
+    )
+
+    if client_ip not in config.allowed_ips:
+        logger.warning(f"Blocked request from unauthorized IP: {client_ip}")
+
+        # Log to Cosmos DB audit trail
+        try:
+            if not _ip_audit._container:
+                await _ip_audit.initialize()
+            await _ip_audit.log_action(
+                session_id="ip-restriction",
+                technician_id="unknown",
+                technician_email="unknown",
+                action="BLOCKED: Unauthorized IP access attempt",
+                tool_name="ip_restriction",
+                tool_args={
+                    "client_ip": client_ip,
+                    "path": str(request.path),
+                    "method": request.method,
+                    "user_agent": request.headers.get("User-Agent", "unknown"),
+                },
+                status="blocked",
+                error=f"IP {client_ip} not in allowlist",
+            )
+        except Exception as e:
+            logger.error(f"Failed to log blocked IP to audit trail: {e}")
+
+        return web.json_response(
+            {"error": "Access denied"},
+            status=403,
+        )
+
+    return await handler(request)
 
 
 # ── Routes ───────────────────────────────────────────────────────────
@@ -149,7 +200,7 @@ async def trigger_report(request: Request) -> Response:
 
 def create_app() -> web.Application:
     """Create and configure the aiohttp application."""
-    app = web.Application()
+    app = web.Application(middlewares=[ip_restriction_middleware])
 
     # Routes
     app.router.add_get("/health", health)
@@ -165,8 +216,7 @@ def create_app() -> web.Application:
 
     # Startup tasks
     async def on_startup(app):
-        audit = AuditService()
-        await audit.initialize()
+        await _ip_audit.initialize()
         logger.info(f"M365 Guardian started on port {config.web_port}")
 
     app.on_startup.append(on_startup)
