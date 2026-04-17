@@ -269,11 +269,14 @@ async def trigger_report(request: Request) -> Response:
 
 def create_app() -> web.Application:
     """Create and configure the aiohttp application."""
-    app = web.Application(middlewares=[auth_middleware])
+    app = web.Application()
 
-    # Session setup — encrypted cookie storage
+    # Session setup FIRST — must be registered before auth middleware
     secret_key = hashlib.sha256(config.session_secret.encode()).digest()
     session_setup(app, EncryptedCookieStorage(secret_key, cookie_name="m365guardian_session"))
+
+    # Auth middleware AFTER session setup
+    app.middlewares.append(auth_middleware)
 
     # Auth routes
     app.router.add_get("/auth/login", auth_login)
