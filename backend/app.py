@@ -1,14 +1,20 @@
 """
 M365 Guardian — Main Application.
 Serves the Teams bot endpoint, the standalone web app, and the scheduled report job.
+Includes Entra ID authentication for web routes.
 """
 
+import base64
+import hashlib
 import logging
 import os
 import sys
 
+import msal
 from aiohttp import web
 from aiohttp.web import Request, Response
+from aiohttp_session import setup as session_setup, get_session
+from aiohttp_session.cookie_storage import EncryptedCookieStorage
 from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings
 from botbuilder.schema import Activity
 
@@ -43,6 +49,115 @@ adapter.on_turn_error = on_error
 
 # Bot instance
 bot = GuardianBot()
+
+
+# ── MSAL Helper ──────────────────────────────────────────────────────
+
+def _get_msal_app() -> msal.ConfidentialClientApplication:
+    """Create an MSAL confidential client for Entra ID auth."""
+    return msal.ConfidentialClientApplication(
+        config.azure_ad.client_id,
+        authority=f"https://login.microsoftonline.com/{config.azure_ad.tenant_id}",
+        client_credential=config.azure_ad.client_secret,
+    )
+
+
+# ── Auth Middleware ──────────────────────────────────────────────────
+
+# Routes that do NOT require authentication
+OPEN_PREFIXES = ("/health", "/api/messages", "/auth/", "/static/")
+
+
+@web.middleware
+async def auth_middleware(request, handler):
+    """Require Entra ID sign-in for protected web routes."""
+    if any(request.path.startswith(p) for p in OPEN_PREFIXES):
+        return await handler(request)
+
+    session = await get_session(request)
+    if not session.get("user"):
+        raise web.HTTPFound("/auth/login")
+
+    return await handler(request)
+
+
+# ── Auth Routes ──────────────────────────────────────────────────────
+
+async def auth_login(request: Request) -> Response:
+    """Redirect the user to Microsoft sign-in."""
+    msal_app = _get_msal_app()
+    auth_url = msal_app.get_authorization_request_url(
+        scopes=["User.Read"],
+        redirect_uri=f"{config.base_url}/auth/callback",
+    )
+    raise web.HTTPFound(auth_url)
+
+
+async def auth_callback(request: Request) -> Response:
+    """Handle the OAuth2 callback from Entra ID."""
+    code = request.query.get("code")
+    error = request.query.get("error")
+
+    if error:
+        logger.warning(f"Auth callback error: {error} - {request.query.get('error_description', '')}")
+        return web.Response(
+            text=f"Authentication failed: {request.query.get('error_description', error)}",
+            status=401,
+            content_type="text/html",
+        )
+
+    if not code:
+        raise web.HTTPFound("/auth/login")
+
+    msal_app = _get_msal_app()
+    result = msal_app.acquire_token_by_authorization_code(
+        code,
+        scopes=["User.Read"],
+        redirect_uri=f"{config.base_url}/auth/callback",
+    )
+
+    if "access_token" in result:
+        claims = result.get("id_token_claims", {})
+        session = await get_session(request)
+        session["user"] = {
+            "name": claims.get("name", "Unknown"),
+            "email": claims.get("preferred_username", ""),
+            "oid": claims.get("oid", ""),
+            "tenant_id": claims.get("tid", ""),
+        }
+        logger.info(f"User signed in: {claims.get('preferred_username', 'unknown')}")
+        raise web.HTTPFound("/")
+
+    logger.warning(f"Token acquisition failed: {result.get('error_description', 'unknown error')}")
+    return web.Response(
+        text="Authentication failed. Please try again.",
+        status=401,
+        content_type="text/html",
+    )
+
+
+async def auth_logout(request: Request) -> Response:
+    """Clear the session and redirect to Microsoft sign-out."""
+    session = await get_session(request)
+    user_email = session.get("user", {}).get("email", "unknown")
+    session.clear()
+    logger.info(f"User signed out: {user_email}")
+
+    # Redirect to Microsoft sign-out, then back to health page
+    logout_url = (
+        f"https://login.microsoftonline.com/{config.azure_ad.tenant_id}/oauth2/v2.0/logout"
+        f"?post_logout_redirect_uri={config.base_url}/health"
+    )
+    raise web.HTTPFound(logout_url)
+
+
+async def auth_me(request: Request) -> Response:
+    """Return the current authenticated user's info."""
+    session = await get_session(request)
+    user = session.get("user")
+    if not user:
+        return web.json_response({"authenticated": False}, status=401)
+    return web.json_response({"authenticated": True, "user": user})
 
 
 # ── Routes ───────────────────────────────────────────────────────────
@@ -88,6 +203,10 @@ async def web_api_chat(request: Request) -> Response:
     from backend.tools.executor import ToolExecutor
     from backend.services.audit_service import AuditService
 
+    # Get authenticated user from session
+    session = await get_session(request)
+    user = session.get("user", {})
+
     body = await request.json()
     user_message = body.get("message", "")
     session_id = body.get("session_id", str(uuid.uuid4()))
@@ -101,8 +220,8 @@ async def web_api_chat(request: Request) -> Response:
         graph=graph,
         audit=audit,
         session_id=session_id,
-        technician_id=body.get("user_id", "web-user"),
-        technician_email=body.get("user_email", "web-user@unknown"),
+        technician_id=user.get("oid", body.get("user_id", "web-user")),
+        technician_email=user.get("email", body.get("user_email", "web-user@unknown")),
     )
 
     try:
@@ -110,8 +229,8 @@ async def web_api_chat(request: Request) -> Response:
             user_message=user_message,
             conversation_history=history,
             session_context={
-                "technician_name": body.get("user_name", "Web User"),
-                "technician_email": body.get("user_email", ""),
+                "technician_name": user.get("name", body.get("user_name", "Web User")),
+                "technician_email": user.get("email", body.get("user_email", "")),
                 "session_id": session_id,
             },
             tool_executor=executor.execute,
@@ -150,9 +269,19 @@ async def trigger_report(request: Request) -> Response:
 
 def create_app() -> web.Application:
     """Create and configure the aiohttp application."""
-    app = web.Application()
+    app = web.Application(middlewares=[auth_middleware])
 
-    # Routes
+    # Session setup — encrypted cookie storage
+    secret_key = hashlib.sha256(config.session_secret.encode()).digest()
+    session_setup(app, EncryptedCookieStorage(secret_key, cookie_name="m365guardian_session"))
+
+    # Auth routes
+    app.router.add_get("/auth/login", auth_login)
+    app.router.add_get("/auth/callback", auth_callback)
+    app.router.add_get("/auth/logout", auth_logout)
+    app.router.add_get("/auth/me", auth_me)
+
+    # App routes
     app.router.add_get("/health", health)
     app.router.add_post("/api/messages", messages)          # Teams bot endpoint
     app.router.add_get("/", web_chat)                        # Web chat UI

@@ -120,16 +120,20 @@ class AppConfig:
     web_port: int = 8080
     base_url: str = ""
     log_level: str = "INFO"
+    session_secret: str = ""
 
     def __post_init__(self):
-        self.web_port = int(os.getenv("WEB_APP_PORT", "8080"))
+        self.web_port = int(os.getenv("PORT", os.getenv("WEB_APP_PORT", "8080")))
         self.base_url = os.getenv("WEB_APP_BASE_URL", "http://localhost:8080")
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
+        self.session_secret = os.getenv("SESSION_SECRET", "change-me-in-production")
 
     def validate(self) -> list[str]:
         errors = self.azure_ad.validate()
         if not self.llm.api_key:
             errors.append(f"API key is required for LLM_PROVIDER={self.llm.provider}")
+        if self.session_secret == "change-me-in-production":
+            errors.append("SESSION_SECRET must be set for production")
         return errors
 
 
