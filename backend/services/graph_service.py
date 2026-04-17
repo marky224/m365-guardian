@@ -10,10 +10,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from azure.identity import ClientSecretCredential
+from kiota_abstractions.base_request_configuration import RequestConfiguration
 from msgraph import GraphServiceClient
 from msgraph.generated.models.user import User
 from msgraph.generated.models.password_profile import PasswordProfile
 from msgraph.generated.models.assigned_license import AssignedLicense
+from msgraph.generated.users.users_request_builder import UsersRequestBuilder
+from msgraph.generated.users.item.user_item_request_builder import UserItemRequestBuilder
 from msgraph.generated.users.item.assign_license.assign_license_post_request_body import (
     AssignLicensePostRequestBody,
 )
@@ -54,19 +57,26 @@ class GraphService:
 
         try:
             if odata_filter:
-                result = await self._client.users.get(
-                    request_configuration=lambda c: setattr(c.query_parameters, "filter", odata_filter)
-                    or setattr(c.query_parameters, "select", select)
-                    or setattr(c.query_parameters, "top", top)
+                params = UsersRequestBuilder.UsersRequestBuilderGetQueryParameters(
+                    filter=odata_filter,
+                    select=select,
+                    top=top,
+                    count=True,
                 )
+                config = RequestConfiguration(query_parameters=params)
+                config.headers.add("ConsistencyLevel", "eventual")
+                result = await self._client.users.get(request_configuration=config)
             else:
                 # Use $search for free-text search
-                result = await self._client.users.get(
-                    request_configuration=lambda c: setattr(c.query_parameters, "search", f'"displayName:{query}" OR "mail:{query}" OR "userPrincipalName:{query}"')
-                    or setattr(c.query_parameters, "select", select)
-                    or setattr(c.query_parameters, "top", top)
-                    or setattr(c.headers, "ConsistencyLevel", "eventual")
+                params = UsersRequestBuilder.UsersRequestBuilderGetQueryParameters(
+                    search=f'"displayName:{query}" OR "mail:{query}" OR "userPrincipalName:{query}"',
+                    select=select,
+                    top=top,
+                    count=True,
                 )
+                config = RequestConfiguration(query_parameters=params)
+                config.headers.add("ConsistencyLevel", "eventual")
+                result = await self._client.users.get(request_configuration=config)
 
             users = []
             if result and result.value:
@@ -96,14 +106,15 @@ class GraphService:
     ) -> dict:
         """Get comprehensive user details."""
         try:
+            params = UserItemRequestBuilder.UserItemRequestBuilderGetQueryParameters(
+                select=["id", "displayName", "userPrincipalName", "mail",
+                        "accountEnabled", "department", "jobTitle",
+                        "usageLocation", "assignedLicenses", "createdDateTime",
+                        "signInActivity"],
+            )
+            config = RequestConfiguration(query_parameters=params)
             user = await self._client.users.by_user_id(user_id).get(
-                request_configuration=lambda c: setattr(
-                    c.query_parameters, "select",
-                    ["id", "displayName", "userPrincipalName", "mail",
-                     "accountEnabled", "department", "jobTitle",
-                     "usageLocation", "assignedLicenses", "createdDateTime",
-                     "signInActivity"]
-                )
+                request_configuration=config
             )
 
             result = {
@@ -335,11 +346,14 @@ class GraphService:
         """Fetch risky sign-in events."""
         cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
         try:
+            from msgraph.generated.identity_protection.risky_users.risky_users_request_builder import RiskyUsersRequestBuilder
+            params = RiskyUsersRequestBuilder.RiskyUsersRequestBuilderGetQueryParameters(
+                filter=f"riskLastUpdatedDateTime ge {cutoff}",
+                top=50,
+            )
+            config = RequestConfiguration(query_parameters=params)
             result = await self._client.identity_protection.risky_users.get(
-                request_configuration=lambda c: setattr(
-                    c.query_parameters, "filter",
-                    f"riskLastUpdatedDateTime ge {cutoff}"
-                ) or setattr(c.query_parameters, "top", 50)
+                request_configuration=config
             )
             return [
                 {
@@ -358,12 +372,12 @@ class GraphService:
     async def get_users_without_mfa(self) -> list[dict]:
         """Find users without registered MFA methods."""
         try:
-            users = await self._client.users.get(
-                request_configuration=lambda c: setattr(
-                    c.query_parameters, "select",
-                    ["id", "displayName", "userPrincipalName"]
-                ) or setattr(c.query_parameters, "top", 999)
+            params = UsersRequestBuilder.UsersRequestBuilderGetQueryParameters(
+                select=["id", "displayName", "userPrincipalName"],
+                top=999,
             )
+            config = RequestConfiguration(query_parameters=params)
+            users = await self._client.users.get(request_configuration=config)
 
             no_mfa = []
             for user in (users.value or []):
@@ -393,12 +407,12 @@ class GraphService:
         """Find accounts with no sign-in activity for threshold_days."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=threshold_days)
         try:
-            result = await self._client.users.get(
-                request_configuration=lambda c: setattr(
-                    c.query_parameters, "select",
-                    ["id", "displayName", "userPrincipalName", "accountEnabled", "signInActivity"]
-                ) or setattr(c.query_parameters, "top", 999)
+            params = UsersRequestBuilder.UsersRequestBuilderGetQueryParameters(
+                select=["id", "displayName", "userPrincipalName", "accountEnabled", "signInActivity"],
+                top=999,
             )
+            config = RequestConfiguration(query_parameters=params)
+            result = await self._client.users.get(request_configuration=config)
 
             dormant = []
             for u in (result.value or []):
@@ -427,10 +441,13 @@ class GraphService:
     async def get_privileged_role_holders(self) -> list[dict]:
         """Get users with permanent privileged directory role assignments."""
         try:
+            from msgraph.generated.role_management.directory.role_assignments.role_assignments_request_builder import RoleAssignmentsRequestBuilder
+            params = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetQueryParameters(
+                expand=["principal", "roleDefinition"],
+            )
+            config = RequestConfiguration(query_parameters=params)
             assignments = await self._client.role_management.directory.role_assignments.get(
-                request_configuration=lambda c: setattr(
-                    c.query_parameters, "expand", ["principal", "roleDefinition"]
-                )
+                request_configuration=config
             )
             holders = []
             for a in (assignments.value or []):
@@ -450,14 +467,15 @@ class GraphService:
     async def get_guest_users(self) -> list[dict]:
         """List all guest users in the tenant."""
         try:
-            result = await self._client.users.get(
-                request_configuration=lambda c: setattr(
-                    c.query_parameters, "filter", "userType eq 'Guest'"
-                ) or setattr(
-                    c.query_parameters, "select",
-                    ["id", "displayName", "mail", "createdDateTime", "signInActivity"]
-                ) or setattr(c.query_parameters, "top", 200)
+            params = UsersRequestBuilder.UsersRequestBuilderGetQueryParameters(
+                filter="userType eq 'Guest'",
+                select=["id", "displayName", "mail", "createdDateTime", "signInActivity"],
+                top=200,
+                count=True,
             )
+            config = RequestConfiguration(query_parameters=params)
+            config.headers.add("ConsistencyLevel", "eventual")
+            result = await self._client.users.get(request_configuration=config)
             return [
                 {
                     "id": u.id,
