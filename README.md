@@ -52,8 +52,6 @@ m365-guardian/
 │   └── web-app/
 │       └── templates/
 │           └── index.html        # Standalone web chat interface
-├── deployment/
-│   └── configure-ip-restrictions.ps1  # Azure IP restriction setup script
 ├── docs/
 │   ├── 01_SYSTEM_PROMPT.md       # Complete chatbot system prompt
 │   ├── 02_TOOL_SCHEMAS.json      # All 18 tool/function definitions
