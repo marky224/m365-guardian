@@ -52,6 +52,8 @@ m365-guardian/
 │   └── web-app/
 │       └── templates/
 │           └── index.html        # Standalone web chat interface
+├── deployment/
+│   └── configure-ip-restrictions.ps1  # Azure IP restriction setup script
 ├── docs/
 │   ├── 01_SYSTEM_PROMPT.md       # Complete chatbot system prompt
 │   ├── 02_TOOL_SCHEMAS.json      # All 18 tool/function definitions
@@ -92,7 +94,7 @@ python -m backend.app
 - **LLM Provider**: Defaults to xAI (Grok). Set `LLM_PROVIDER` and the corresponding API key in `.env`.
 - **Bot Type**: Uses `SingleTenant` (MultiTenant is deprecated by Azure).
 - **Azure Region**: Deployed to `centralus` (eastus had quota limitations).
-- **IP Restriction**: The App Service is locked to specific IPs via access restrictions.
+- **IP Restriction**: The App Service is locked to specific IPs via Azure platform-level access restrictions.
 
 ### 4. Deploy to Azure
 
@@ -139,8 +141,24 @@ M365 Guardian supports one-click LLM swapping via LiteLLM:
 - **Mandatory confirmation** — every write action requires explicit `YES`
 - **Least-privilege** — Graph permissions are scoped to exactly what's needed
 - **Full audit trail** — every action logged with who, what, when, and transcript
+- **IP restriction** — Azure App Service access restrictions block unauthorized IPs at the platform level before they reach the application
 - **No data leakage** — passwords masked, secrets never echoed
 - **Provider isolation** — no customer data used for LLM training
+
+## IP Access Restrictions
+
+M365 Guardian uses Azure App Service access restrictions to block unauthorized IPs at the platform level, before they reach the application. Configure via CLI or the included deployment script (`deployment/configure-ip-restrictions.ps1`):
+
+```bash
+# Add allowed IPs
+az webapp config access-restriction add --name m365guardian-app --resource-group rg-m365guardian --priority 100 --rule-name "MyIP" --action Allow --ip-address YOUR_IP/32
+
+# Allow Bot Framework (required for Teams)
+az webapp config access-restriction add --name m365guardian-app --resource-group rg-m365guardian --priority 500 --rule-name "BotFramework" --action Allow --service-tag AzureBotService
+
+# Deny all others
+az webapp config access-restriction set --name m365guardian-app --resource-group rg-m365guardian --default-action Deny
+```
 
 ## Tool Inventory (18 Functions)
 
