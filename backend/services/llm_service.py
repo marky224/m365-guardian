@@ -200,7 +200,7 @@ class LLMService:
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc["id"],
-                            "content": json.dumps(result),
+                            "content": json.dumps(result, default=str),
                         })
                     except Exception as e:
                         messages.append({
@@ -209,7 +209,7 @@ class LLMService:
                             "content": json.dumps({
                                 "error": str(e),
                                 "error_type": type(e).__name__,
-                            }),
+                            }, default=str),
                         })
 
         # Max iterations reached
