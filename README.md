@@ -93,6 +93,8 @@ python -m backend.app
 - **Bot Type**: Uses `SingleTenant` (MultiTenant is deprecated by Azure).
 - **Azure Region**: Deployed to `centralus` (eastus had quota limitations).
 - **IP Restriction**: The App Service is locked to specific IPs via Azure platform-level access restrictions.
+- **Deployment**: Set `SCM_DO_BUILD_DURING_DEPLOYMENT=true` in App Service settings so Azure installs Python dependencies during deployment.
+- **Python Runtime**: Must use Python 3.11. Deploying with 3.12 causes `libpython3.11.so` errors because the virtual environment is built against 3.11.
 
 ### 4. Deploy to Azure
 
@@ -143,20 +145,13 @@ M365 Guardian supports one-click LLM swapping via LiteLLM:
 - **No data leakage** — passwords masked, secrets never echoed
 - **Provider isolation** — no customer data used for LLM training
 
-## IP Access Restrictions
+## Required Entra ID Roles
 
-M365 Guardian uses Azure App Service access restrictions to block unauthorized IPs at the platform level, before they reach the application. Configure via CLI or the included deployment script (`deployment/configure-ip-restrictions.ps1`):
+In addition to the Graph API application permissions listed in the deployment guide, the M365 Guardian **service principal** requires the **Helpdesk Administrator** directory role in Entra ID. This is separate from API permissions — without it, password resets return a 403 `Authorization_RequestDenied` error even with `User.ReadWrite.All` granted.
 
-```bash
-# Add allowed IPs
-az webapp config access-restriction add --name m365guardian-app --resource-group rg-m365guardian --priority 100 --rule-name "MyIP" --action Allow --ip-address YOUR_IP/32
+Assign via: **Entra ID → Roles and administrators → Helpdesk Administrator → Add assignments → select "M365 Guardian" (Enterprise Application)**.
 
-# Allow Bot Framework (required for Teams)
-az webapp config access-restriction add --name m365guardian-app --resource-group rg-m365guardian --priority 500 --rule-name "BotFramework" --action Allow --service-tag AzureBotService
-
-# Deny all others
-az webapp config access-restriction set --name m365guardian-app --resource-group rg-m365guardian --default-action Deny
-```
+> **Note:** Helpdesk Administrator can reset passwords for non-admin users only. Resets for Global Admins will be denied by design — this is correct least-privilege behavior.
 
 ## Tool Inventory (18 Functions)
 
