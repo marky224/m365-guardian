@@ -489,6 +489,58 @@ class GraphService:
             logger.error(f"get_guest_users failed: {e}")
             return []
 
+    # ── REPORT DELIVERY ──────────────────────────────────────────────
+
+    async def send_channel_message(self, team_id: str, channel_id: str, content: str) -> dict:
+        """Post a message to a Teams channel."""
+        try:
+            from msgraph.generated.models.chat_message import ChatMessage
+            from msgraph.generated.models.item_body import ItemBody
+            from msgraph.generated.models.body_type import BodyType
+
+            message = ChatMessage(
+                body=ItemBody(
+                    content_type=BodyType.Html,
+                    content=content,
+                ),
+            )
+            result = await self._client.teams.by_team_id(team_id).channels.by_channel_id(channel_id).messages.post(
+                message)
+            return {"message_id": result.id, "sent": True}
+        except Exception as e:
+            logger.error(f"send_channel_message failed: {e}")
+            raise
+
+    async def send_mail(self, sender_upn: str, recipients: list[str], subject: str, html_body: str) -> dict:
+        """Send an email via Microsoft Graph sendMail."""
+        try:
+            from msgraph.generated.users.item.send_mail.send_mail_post_request_body import SendMailPostRequestBody
+            from msgraph.generated.models.message import Message
+            from msgraph.generated.models.item_body import ItemBody
+            from msgraph.generated.models.body_type import BodyType
+            from msgraph.generated.models.recipient import Recipient
+            from msgraph.generated.models.email_address import EmailAddress
+
+            mail_body = SendMailPostRequestBody(
+                message=Message(
+                    subject=subject,
+                    body=ItemBody(
+                        content_type=BodyType.Html,
+                        content=html_body,
+                    ),
+                    to_recipients=[
+                        Recipient(email_address=EmailAddress(address=addr))
+                        for addr in recipients
+                    ],
+                ),
+                save_to_sent_items=False,
+            )
+            await self._client.users.by_user_id(sender_upn).send_mail.post(mail_body)
+            return {"sent": True, "recipients": recipients}
+        except Exception as e:
+            logger.error(f"send_mail failed: {e}")
+            raise
+
     # ── HELPERS ───────────────────────────────────────────────────────
 
     @staticmethod
