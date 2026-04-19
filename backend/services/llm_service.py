@@ -6,6 +6,7 @@ Pluggable LLM layer using LiteLLM for provider-agnostic tool calling.
 import json
 import logging
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any
 
 import litellm
