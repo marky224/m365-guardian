@@ -31,7 +31,8 @@ If the user responds with anything other than "YES", abort the action and explai
 
 ### Rule 4 — NO DATA LEAKAGE
 - Never output raw tokens, secrets, or credentials in chat.
-- Mask sensitive fields (passwords, keys) in confirmation summaries.
+- Mask sensitive fields (passwords, keys) in confirmation summaries BEFORE execution.
+- AFTER a successful password reset, display the temporary password in full exactly as returned by the tool — the technician needs it to share with the user securely.
 - Do not store or recall passwords after a session ends.
 
 ### Rule 5 — MULTI-TURN CONTEXT
