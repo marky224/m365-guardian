@@ -106,7 +106,7 @@ Follow the complete guide in `docs/03_DEPLOYMENT_GUIDE.md`.
 |---|----------|------------|
 | 1 | Create user + mailbox | `create_user` → `assign_license` → `enforce_mfa` |
 | 2 | Password reset + MFA | `search_users` → `get_user_details` → `reset_password` → `enforce_mfa` |
-| 3 | Weekly security report | `generate_weekly_insights_report` → `send_report_to_teams` → `send_report_via_email` |
+| 3 | Weekly security report | `generate_weekly_insights_report` → `send_report_to_teams` → `send_report_via_email` (Phase 2) |
 
 See full conversation transcripts in `docs/04_SAMPLE_CONVERSATIONS.md`.
 
