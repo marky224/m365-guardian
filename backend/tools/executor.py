@@ -242,10 +242,15 @@ class ToolExecutor:
         )
 
     async def _send_teams_report(self, args: dict) -> dict:
-        return {"sent_to_teams": True, "channel_id": args["channel_id"]}
+        """Return the report for display in the current Teams conversation."""
+        from backend.services.report_service import ReportService
+        report_svc = ReportService(self.graph)
+        report = await report_svc.generate()
+        return {"sent_to_teams": True, "delivered_in": "current_conversation", "report": report}
 
     async def _send_email_report(self, args: dict) -> dict:
-        return {"sent_to_email": True, "recipients": args["recipients"]}
+        """Email delivery is planned for Phase 2."""
+        return {"sent_to_email": False, "note": "Email delivery is not yet implemented. The report is available in the current conversation."}
 
     async def _get_audit_log(self, args: dict) -> dict:
         logs = await self.audit.query_logs(
