@@ -25,11 +25,17 @@ class GuardianBot(ActivityHandler):
         self.llm = LLMService()
         self.graph = GraphService()
         self.audit = AuditService()
+        self._audit_initialized = False
         # In-memory session store (use Cosmos DB in production)
         self._sessions: dict[str, dict] = {}
 
     async def on_message_activity(self, turn_context: TurnContext):
         """Handle incoming messages."""
+        # Initialize audit service Cosmos DB connection on first message
+        if not self._audit_initialized:
+            await self.audit.initialize()
+            self._audit_initialized = True
+
         user_message = turn_context.activity.text or ""
         user_id = turn_context.activity.from_property.id or "unknown"
         user_name = turn_context.activity.from_property.name or "Unknown"

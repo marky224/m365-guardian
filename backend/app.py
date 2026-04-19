@@ -215,6 +215,7 @@ async def web_api_chat(request: Request) -> Response:
     llm = LLMService()
     graph = GraphService()
     audit = AuditService()
+    await audit.initialize()
 
     executor = ToolExecutor(
         graph=graph,
