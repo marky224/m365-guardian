@@ -97,6 +97,7 @@ class LLMService:
             ctx = (
                 f"\n\n[Session Context]\n"
                 f"Technician: {session_context.get('technician_name', 'Unknown')}\n"
+                f"Current Date: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}\n"
                 f"Technician Email: {session_context.get('technician_email', 'Unknown')}\n"
                 f"Tenant: {session_context.get('tenant_id', config.azure_ad.tenant_id)}\n"
                 f"Session ID: {session_context.get('session_id', 'N/A')}\n"
