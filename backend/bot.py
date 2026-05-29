@@ -6,10 +6,11 @@ Handles incoming messages from Teams via Azure Bot Service.
 import logging
 import uuid
 
-from botbuilder.core import ActivityHandler, TurnContext
-from botbuilder.schema import Activity, ActivityTypes
+from botbuilder.core import ActivityHandler, CardFactory, MessageFactory, TurnContext
+from botbuilder.schema import Activity, ActivityTypes, Attachment
 
 from backend.config import config
+from backend.confirmations import resolve_pending_confirmation
 from backend.services.audit_service import AuditService
 from backend.services.graph_service import GraphService
 from backend.services.llm_service import LLMService
@@ -38,6 +39,13 @@ class GuardianBot(ActivityHandler):
 
     async def on_message_activity(self, turn_context: TurnContext):
         """Handle incoming messages."""
+        # An Adaptive Card Approve/Cancel click arrives as a submit action in activity.value
+        # (with no text). Handle it in code — the model is never consulted for the approval.
+        submit = turn_context.activity.value
+        if isinstance(submit, dict) and submit.get("action") == "guardian_confirm":
+            await self._handle_confirm_submit(turn_context, submit)
+            return
+
         user_message = turn_context.activity.text or ""
         user_id = turn_context.activity.from_property.id or "unknown"
         user_name = turn_context.activity.from_property.name or "Unknown"
@@ -89,12 +97,23 @@ class GuardianBot(ActivityHandler):
             )
 
             # Send response (split if > 4000 chars for Teams)
-            if len(response_text) > 4000:
+            if response_text and len(response_text) > 4000:
                 chunks = [response_text[i : i + 3900] for i in range(0, len(response_text), 3900)]
                 for chunk in chunks:
                     await turn_context.send_activity(chunk)
-            else:
+            elif response_text:
                 await turn_context.send_activity(response_text)
+
+            # If a write was proposed, persist the approval and render an Approve/Cancel card.
+            # The token rides in the card's Action.Submit and is validated in code on click.
+            if executor.pending_confirmation:
+                await self.sessions.set_pending(
+                    conversation_id, owner_id=conversation_id, pending=executor.pending_confirmation
+                )
+                card = self._confirmation_card(
+                    executor.pending_confirmation["summary"], executor.pending_confirmation["token"]
+                )
+                await turn_context.send_activity(MessageFactory.attachment(card))
 
         except Exception as e:
             error_id = uuid.uuid4().hex[:8]
@@ -121,3 +140,57 @@ class GuardianBot(ActivityHandler):
                     'Try: *"Create a new user named Jane Doe in the Engineering department"*'
                 )
                 await turn_context.send_activity(welcome)
+
+    async def _handle_confirm_submit(self, turn_context: TurnContext, submit: dict) -> None:
+        """Resolve an Adaptive Card Approve/Cancel click (Layer 2, D-015)."""
+        conversation_id = turn_context.activity.conversation.id
+        user_id = turn_context.activity.from_property.id or "unknown"
+        user_email = turn_context.activity.from_property.aad_object_id or user_id
+
+        def build_executor(fingerprint: str) -> ToolExecutor:
+            return ToolExecutor(
+                graph=self.graph,
+                audit=self.audit,
+                session_id=conversation_id,
+                technician_id=user_id,
+                technician_email=user_email,
+                mfa_required_group_id=config.security.mfa_required_group_id,
+                confirmed_fingerprint=fingerprint,
+            )
+
+        message = await resolve_pending_confirmation(
+            sessions=self.sessions,
+            key=conversation_id,
+            owner_id=conversation_id,
+            token=submit.get("token", ""),
+            decision=submit.get("decision", "approve"),
+            build_executor=build_executor,
+        )
+        await turn_context.send_activity(message)
+
+    @staticmethod
+    def _confirmation_card(summary: str, token: str) -> Attachment:
+        """Adaptive Card with Approve/Cancel; each carries the approval token in its submit data."""
+        return CardFactory.adaptive_card(
+            {
+                "type": "AdaptiveCard",
+                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                "version": "1.4",
+                "body": [
+                    {"type": "TextBlock", "text": "⚠️ Approval required", "weight": "Bolder", "wrap": True},
+                    {"type": "TextBlock", "text": summary, "wrap": True},
+                ],
+                "actions": [
+                    {
+                        "type": "Action.Submit",
+                        "title": "✅ Approve",
+                        "data": {"action": "guardian_confirm", "decision": "approve", "token": token},
+                    },
+                    {
+                        "type": "Action.Submit",
+                        "title": "✖ Cancel",
+                        "data": {"action": "guardian_confirm", "decision": "cancel", "token": token},
+                    },
+                ],
+            }
+        )

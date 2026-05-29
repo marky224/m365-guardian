@@ -5,7 +5,11 @@ Routes LLM tool calls to the appropriate Graph API service methods.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import secrets
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
@@ -17,6 +21,9 @@ if TYPE_CHECKING:
     from backend.services.graph_service import GraphService
 
 logger = logging.getLogger(__name__)
+
+# How long a pending write approval stays valid before the technician must re-request it.
+CONFIRMATION_TTL = timedelta(minutes=10)
 
 
 class ToolExecutor:
@@ -50,6 +57,7 @@ class ToolExecutor:
         technician_id: str = "",
         technician_email: str = "",
         mfa_required_group_id: str = "",
+        confirmed_fingerprint: str | None = None,
     ):
         self.graph = graph
         self.audit = audit
@@ -59,6 +67,20 @@ class ToolExecutor:
         # Entra group an MFA Conditional Access policy targets; injected so the
         # executor stays decoupled from the global config singleton (and unit-testable).
         self.mfa_required_group_id = mfa_required_group_id
+        # Layer 2 confirmation (D-015). A write executes only if its fingerprint matches a
+        # grant the *handler* set after validating a human approval (button/token) against
+        # durable session state — the model's `confirm` flag no longer authorizes anything.
+        self.confirmed_fingerprint = confirmed_fingerprint
+        # Set when a write is proposed but not yet approved; the handler reads this to persist
+        # the pending record and render the Approve/Cancel UI. The token is never returned to
+        # the model (the model cannot self-approve even if prompt-injected).
+        self.pending_confirmation: dict | None = None
+
+    @staticmethod
+    def _fingerprint(tool_name: str, args: dict) -> str:
+        """Stable fingerprint of a write action, binding an approval to exact (tool, args)."""
+        payload = json.dumps({"tool": tool_name, "args": args}, sort_keys=True, default=str)
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
     async def execute(self, tool_name: str, arguments: dict) -> dict:
         """
@@ -77,10 +99,10 @@ class ToolExecutor:
 
         is_write = tool_name in self.WRITE_TOOLS
 
-        confirmed = False
         if is_write:
-            confirmed = bool(arguments.get("confirm"))
-            # Never forward the confirm flag down to the Graph layer.
+            # The legacy `confirm` flag is no longer trusted to authorize (Layer 2, D-015):
+            # only a handler-set fingerprint grant does. Strip it so it neither reaches Graph
+            # nor perturbs the fingerprint.
             arguments = {k: v for k, v in arguments.items() if k != "confirm"}
 
         # Validate (and normalize) arguments before doing anything else, so a
@@ -91,27 +113,44 @@ class ToolExecutor:
             return validation["error"]
         arguments = validation["args"]
 
-        if is_write and not confirmed:
-            summary = self._describe_action(tool_name, arguments)
-            await self.audit.log_action(
-                session_id=self.session_id,
-                technician_id=self.technician_id,
-                technician_email=self.technician_email,
-                action=f"CONFIRMATION_REQUESTED: {tool_name}",
-                tool_name=tool_name,
-                tool_args=arguments,
-                status="pending_confirmation",
+        if is_write:
+            fingerprint = self._fingerprint(tool_name, arguments)
+            granted = self.confirmed_fingerprint is not None and secrets.compare_digest(
+                self.confirmed_fingerprint, fingerprint
             )
-            return {
-                "confirmation_required": True,
-                "tool": tool_name,
-                "summary": summary,
-                "message": (
-                    f"⚠️ Confirmation required before this change is made. {summary} "
-                    "Present this to the technician and proceed only after they explicitly "
-                    f"approve. To execute, call {tool_name} again with confirm=true."
-                ),
-            }
+            if not granted:
+                summary = self._describe_action(tool_name, arguments)
+                now = datetime.now(UTC)
+                # Mint a server-side token bound to this exact action. NOT returned to the
+                # model — the handler reads self.pending_confirmation to render the approval UI.
+                self.pending_confirmation = {
+                    "token": secrets.token_hex(3),
+                    "fingerprint": fingerprint,
+                    "tool": tool_name,
+                    "args": arguments,
+                    "summary": summary,
+                    "created_at": now.isoformat(),
+                    "expires_at": (now + CONFIRMATION_TTL).isoformat(),
+                }
+                await self.audit.log_action(
+                    session_id=self.session_id,
+                    technician_id=self.technician_id,
+                    technician_email=self.technician_email,
+                    action=f"CONFIRMATION_REQUESTED: {tool_name}",
+                    tool_name=tool_name,
+                    tool_args=arguments,
+                    status="pending_confirmation",
+                )
+                return {
+                    "confirmation_required": True,
+                    "tool": tool_name,
+                    "summary": summary,
+                    "message": (
+                        f"⚠️ This change needs the technician's approval before it runs. {summary} "
+                        "Present the summary and the Approve / Cancel options. Do NOT call this tool "
+                        "again — the system collects the approval and runs the change for you."
+                    ),
+                }
 
         try:
             result = await handler(arguments)

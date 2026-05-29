@@ -14,6 +14,7 @@ with the same API, so the app still runs — they are simply lost on restart.
 """
 
 import logging
+import secrets
 from datetime import UTC, datetime
 
 from azure.cosmos import ContainerProxy, CosmosClient, PartitionKey
@@ -130,6 +131,43 @@ class SessionService:
             self._container.upsert_item(doc)
         except Exception as e:
             logger.error(f"Session write failed: {e}")
+
+    # ── Layer 2 confirmation: pending-write approvals (D-015) ────────────
+
+    async def set_pending(self, key: str, owner_id: str, pending: dict) -> None:
+        """Store the pending-write-approval record on the session."""
+        doc = await self.get_or_create(key, owner_id)
+        doc["pending_confirmation"] = pending
+        doc["updated_at"] = _now()
+        self._write(doc)
+
+    async def get_pending(self, key: str, owner_id: str) -> dict | None:
+        """Return the session's pending approval record, or None."""
+        doc = await self.get(key, owner_id)
+        return doc.get("pending_confirmation") if doc else None
+
+    async def clear_pending(self, key: str, owner_id: str) -> None:
+        """Remove any pending approval record (after it's consumed or cancelled)."""
+        doc = await self.get(key, owner_id)
+        if doc and doc.get("pending_confirmation") is not None:
+            doc.pop("pending_confirmation", None)
+            doc["updated_at"] = _now()
+            self._write(doc)
+
+    @staticmethod
+    def is_pending_valid(pending: dict | None, token: str, now: datetime) -> bool:
+        """True if `token` matches a non-expired pending approval. Constant-time token compare."""
+        if not pending or not token:
+            return False
+        if not secrets.compare_digest(str(pending.get("token", "")), str(token)):
+            return False
+        expires_at = pending.get("expires_at")
+        if not expires_at:
+            return False
+        try:
+            return now < datetime.fromisoformat(expires_at)
+        except (ValueError, TypeError):
+            return False
 
     @staticmethod
     def renderable_messages(history: list[dict]) -> list[dict]:

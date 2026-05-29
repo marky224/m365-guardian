@@ -104,10 +104,6 @@
           "license_sku_id": {
             "type": "string",
             "description": "Optional license SKU id to assign to the new user."
-          },
-          "confirm": {
-            "type": "boolean",
-            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
         "required": [
@@ -131,10 +127,6 @@
           "updates": {
             "type": "object",
             "description": "Map of properties to change. Supported keys: displayName, givenName, surname, jobTitle, department, companyName, officeLocation, mobilePhone, usageLocation, accountEnabled."
-          },
-          "confirm": {
-            "type": "boolean",
-            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
         "required": [
@@ -152,10 +144,6 @@
           "user_id": {
             "type": "string",
             "description": "User object id or userPrincipalName."
-          },
-          "confirm": {
-            "type": "boolean",
-            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
         "required": [
@@ -180,10 +168,6 @@
           "force_change_at_next_sign_in": {
             "type": "boolean",
             "description": "Require password change at next sign-in (default true)."
-          },
-          "confirm": {
-            "type": "boolean",
-            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
         "required": [
@@ -218,10 +202,6 @@
               "disabled"
             ],
             "description": "Direction of the change. 'enforced'/'enabled' add the user to the MFA group; 'disabled' removes them. Default 'enforced'."
-          },
-          "confirm": {
-            "type": "boolean",
-            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
         "required": [
@@ -263,10 +243,6 @@
               "type": "string"
             },
             "description": "Optional list of service plan ids to disable within the SKU."
-          },
-          "confirm": {
-            "type": "boolean",
-            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
         "required": [
@@ -288,10 +264,6 @@
           "sku_id": {
             "type": "string",
             "description": "License SKU id to remove."
-          },
-          "confirm": {
-            "type": "boolean",
-            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
         "required": [
@@ -321,10 +293,6 @@
           "group_id": {
             "type": "string",
             "description": "Target group object id."
-          },
-          "confirm": {
-            "type": "boolean",
-            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
         "required": [
@@ -358,10 +326,6 @@
               "type": "string"
             },
             "description": "Member UPNs (for membership actions)."
-          },
-          "confirm": {
-            "type": "boolean",
-            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
         "required": [
@@ -394,10 +358,6 @@
               "type": "string"
             },
             "description": "Member UPNs (for membership actions)."
-          },
-          "confirm": {
-            "type": "boolean",
-            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
         "required": [
@@ -452,12 +412,7 @@
       "description": "Generate the security report and deliver it to the current Teams conversation. Requires confirmation.",
       "input_schema": {
         "type": "object",
-        "properties": {
-          "confirm": {
-            "type": "boolean",
-            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
-          }
-        },
+        "properties": {},
         "required": []
       }
     },
@@ -473,10 +428,6 @@
               "type": "string"
             },
             "description": "Recipient email addresses."
-          },
-          "confirm": {
-            "type": "boolean",
-            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
         "required": []
@@ -539,10 +490,6 @@
           "parameters": {
             "type": "object",
             "description": "Operation parameters, e.g., {\"sku_id\": \"...\"} for license operations."
-          },
-          "confirm": {
-            "type": "boolean",
-            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
         "required": [
