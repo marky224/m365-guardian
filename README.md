@@ -37,24 +37,29 @@ M365 Guardian is an LLM-powered chatbot built for SMB IT technicians. It enables
 ```
 m365-guardian/
 ├── backend/
-│   ├── app.py                    # Main entry point (aiohttp server)
+│   ├── app.py                    # Main entry point (aiohttp server) + app factory/lifecycle
 │   ├── bot.py                    # Teams bot handler
 │   ├── config.py                 # Configuration from environment
+│   ├── observability.py          # Azure Monitor / OpenTelemetry setup (App Insights)
 │   ├── services/
-│   │   ├── graph_service.py      # Microsoft Graph API wrapper
+│   │   ├── graph_service.py      # Microsoft Graph API wrapper (managed identity)
 │   │   ├── llm_service.py        # LLM orchestration via LiteLLM
 │   │   ├── audit_service.py      # Cosmos DB audit logging
+│   │   ├── session_service.py    # Durable Cosmos conversation sessions
+│   │   ├── secret_service.py     # Key Vault / env secret resolution
 │   │   └── report_service.py     # Weekly security report (10 checks)
 │   ├── tools/
-│   │   └── executor.py           # Routes tool calls to Graph methods
+│   │   ├── executor.py           # Routes tool calls to Graph methods (confirmation gate)
+│   │   └── validation.py         # Per-tool pydantic argument validation
 │   ├── functions/
 │   │   └── weekly_report.py      # Azure Function timer trigger
-│   └── web-app/
-│       └── templates/
-│           └── index.html        # Standalone web chat interface
+│   ├── web-app/
+│   │   └── templates/
+│   │       └── index.html        # Standalone web chat interface
+│   └── tests/                    # pytest suite
 ├── docs/
 │   ├── 01_SYSTEM_PROMPT.md       # Complete chatbot system prompt
-│   ├── 02_TOOL_SCHEMAS.json      # All 18 tool/function definitions
+│   ├── 02_TOOL_SCHEMAS.json      # All 19 tool/function definitions
 │   ├── 03_DEPLOYMENT_GUIDE.md    # Step-by-step Azure deployment
 │   └── 04_SAMPLE_CONVERSATIONS.md # PoC scenario conversation flows
 ├── .env.template                 # Environment variable template
@@ -136,6 +141,24 @@ M365 Guardian supports one-click LLM swapping via LiteLLM:
 | Azure OpenAI | `azure_openai` | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` |
 | OpenAI | `openai` | `OPENAI_API_KEY` |
 
+## Production Hardening
+
+M365 Guardian runs on Azure with platform-managed identity and secrets. All four features below are
+**environment-gated**, so a local checkout runs with no Azure dependencies.
+
+- **Managed identity for Graph** — app-only Microsoft Graph auth uses `DefaultAzureCredential` (the
+  App Service's managed identity in Azure; falls back to the env client secret / `az login` locally).
+  Grant the identity the required Graph **application permissions** (admin consent).
+- **Key Vault for secrets** — set `KEY_VAULT_URL` and the app fetches `azure-client-secret`,
+  `llm-api-key`, `bot-app-password`, `cosmos-key`, and `session-secret` from Key Vault at startup via
+  managed identity. With it unset, secrets come from the environment / `.env` (local dev).
+- **Durable sessions** — conversation history is stored in the Cosmos `sessions` container (partition
+  key `/owner_id`, 30-day TTL), so sessions survive restarts and scale across instances. History is
+  scoped to the authenticated user.
+- **Observability** — set `APPLICATIONINSIGHTS_CONNECTION_STRING` to ship traces, metrics, and
+  request-correlated logs to Application Insights (OpenTelemetry + aiohttp-server instrumentation).
+  Unset = console logging only.
+
 ## Security Principles
 
 - **Mandatory confirmation** — every write action requires explicit `YES`
@@ -153,7 +176,7 @@ Assign via: **Entra ID → Roles and administrators → Helpdesk Administrator �
 
 > **Note:** Helpdesk Administrator can reset passwords for non-admin users only. Resets for Global Admins will be denied by design — this is correct least-privilege behavior.
 
-## Tool Inventory (18 Functions)
+## Tool Inventory (19 Functions)
 
 | Tool | Type | Description |
 |------|------|-------------|
