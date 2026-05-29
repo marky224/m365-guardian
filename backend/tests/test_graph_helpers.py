@@ -2,10 +2,19 @@
 
 import string
 
+from azure.identity import DefaultAzureCredential
+
 from backend.services.graph_service import GraphService
 
 SPECIALS = set("!@#$%^&*")
 ALLOWED = set(string.ascii_letters + string.digits) | SPECIALS
+
+
+def test_graph_service_uses_managed_identity_credential():
+    # App-only Graph auth goes through DefaultAzureCredential (managed identity in
+    # Azure, env client secret / az login locally) — no static ClientSecretCredential.
+    svc = GraphService()
+    assert isinstance(svc._credential, DefaultAzureCredential)
 
 
 def test_password_default_length():

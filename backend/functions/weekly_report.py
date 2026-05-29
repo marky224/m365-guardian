@@ -11,6 +11,7 @@ import azure.functions as func
 from backend.config import config
 from backend.services.graph_service import GraphService
 from backend.services.report_service import ReportService
+from backend.services.secret_service import SecretProvider
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,10 @@ async def weekly_report_trigger(timer: func.TimerRequest) -> None:
 
     logger.info("Starting weekly security insights report generation...")
 
+    # Resolve secrets (Key Vault via this Function's managed identity, or env), then validate.
+    secrets = SecretProvider()
+    secrets.hydrate(config)
+    secrets.close()
     config.ensure_valid()  # fail fast on missing/placeholder configuration
 
     try:

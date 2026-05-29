@@ -24,6 +24,7 @@ from backend.services.audit_service import AuditService
 from backend.services.graph_service import GraphService
 from backend.services.llm_service import LLMService
 from backend.services.report_service import ReportService
+from backend.services.secret_service import SecretProvider
 from backend.tools.executor import ToolExecutor
 
 # ── Logging ──────────────────────────────────────────────────────────
@@ -281,6 +282,12 @@ async def trigger_report(request: Request) -> Response:
 
 def create_app() -> web.Application:
     """Create and configure the aiohttp application."""
+    # Resolve secrets before anything reads them: Key Vault in prod (KEY_VAULT_URL),
+    # environment/.env locally. hydrate() is synchronous, so it runs here — ahead of
+    # session_setup, which derives the cookie key from the (now hydrated) session_secret.
+    secrets = SecretProvider()
+    secrets.hydrate(config)
+    secrets.close()
     config.ensure_valid()  # fail fast on missing/placeholder configuration
 
     app = web.Application()

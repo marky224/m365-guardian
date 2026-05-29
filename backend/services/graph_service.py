@@ -9,7 +9,7 @@ import string
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from azure.identity import ClientSecretCredential
+from azure.identity import DefaultAzureCredential
 from kiota_abstractions.base_request_configuration import RequestConfiguration
 from msgraph import GraphServiceClient
 from msgraph.generated.models.assigned_license import AssignedLicense
@@ -21,8 +21,6 @@ from msgraph.generated.users.item.assign_license.assign_license_post_request_bod
 from msgraph.generated.users.item.user_item_request_builder import UserItemRequestBuilder
 from msgraph.generated.users.users_request_builder import UsersRequestBuilder
 
-from backend.config import config
-
 logger = logging.getLogger(__name__)
 
 
@@ -30,11 +28,9 @@ class GraphService:
     """Wrapper around Microsoft Graph SDK for M365 Guardian operations."""
 
     def __init__(self):
-        self._credential = ClientSecretCredential(
-            tenant_id=config.azure_ad.tenant_id,
-            client_id=config.azure_ad.client_id,
-            client_secret=config.azure_ad.client_secret,
-        )
+        # App-only Graph auth via managed identity in Azure; locally
+        # DefaultAzureCredential falls back to the env client secret / `az login`.
+        self._credential = DefaultAzureCredential()
         self._client = GraphServiceClient(
             self._credential,
             scopes=["https://graph.microsoft.com/.default"],
