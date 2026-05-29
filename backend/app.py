@@ -25,6 +25,7 @@ from backend.services.graph_service import GraphService
 from backend.services.llm_service import LLMService
 from backend.services.report_service import ReportService
 from backend.services.secret_service import SecretProvider
+from backend.services.session_service import SessionService
 from backend.tools.executor import ToolExecutor
 
 # ── Logging ──────────────────────────────────────────────────────────
@@ -45,6 +46,7 @@ logger = logging.getLogger("m365guardian")
 LLM_KEY: web.AppKey[LLMService] = web.AppKey("llm", LLMService)
 GRAPH_KEY: web.AppKey[GraphService] = web.AppKey("graph", GraphService)
 AUDIT_KEY: web.AppKey[AuditService] = web.AppKey("audit", AuditService)
+SESSION_KEY: web.AppKey[SessionService] = web.AppKey("sessions", SessionService)
 REPORT_KEY: web.AppKey[ReportService] = web.AppKey("report_svc", ReportService)
 BOT_KEY: web.AppKey[GuardianBot] = web.AppKey("bot", GuardianBot)
 ADAPTER_KEY: web.AppKey[BotFrameworkAdapter] = web.AppKey("adapter", BotFrameworkAdapter)
@@ -212,41 +214,60 @@ async def web_api_chat(request: Request) -> Response:
 
     body = await request.json()
     user_message = body.get("message", "")
-    session_id = body.get("session_id", str(uuid.uuid4()))
-    history = body.get("history", [])
+    session_id = body.get("session_id") or str(uuid.uuid4())
+
+    # Owner is the authenticated user, derived server-side (never from the body),
+    # so a client cannot read or continue another user's session by passing its id.
+    owner_id = user.get("oid") or "web-user"
+    technician_name = user.get("name", "Web User")
+    technician_email = user.get("email", "web-user@unknown")
 
     # Shared services are built once at startup; only the executor is
     # per-request (it is bound to this technician's identity and session).
     llm = request.app[LLM_KEY]
     graph = request.app[GRAPH_KEY]
     audit = request.app[AUDIT_KEY]
+    sessions = request.app[SESSION_KEY]
+
+    # Load durable history from the store, scoped to this user. Any history in the
+    # request body is ignored — the server is the source of truth.
+    sess = await sessions.get_or_create(
+        session_id, owner_id=owner_id, user_name=technician_name, user_email=technician_email
+    )
 
     executor = ToolExecutor(
         graph=graph,
         audit=audit,
         session_id=session_id,
-        technician_id=user.get("oid", body.get("user_id", "web-user")),
-        technician_email=user.get("email", body.get("user_email", "web-user@unknown")),
+        technician_id=owner_id,
+        technician_email=technician_email,
         mfa_required_group_id=config.security.mfa_required_group_id,
     )
 
     try:
         response_text, updated_history = await llm.chat_with_tool_loop(
             user_message=user_message,
-            conversation_history=history,
+            conversation_history=sess["history"],
             session_context={
-                "technician_name": user.get("name", body.get("user_name", "Web User")),
-                "technician_email": user.get("email", body.get("user_email", "")),
+                "technician_name": technician_name,
+                "technician_email": technician_email,
                 "session_id": session_id,
             },
             tool_executor=executor.execute,
+        )
+
+        await sessions.save(
+            session_id,
+            owner_id=owner_id,
+            history=updated_history,
+            user_name=technician_name,
+            user_email=technician_email,
         )
 
         return web.json_response(
             {
                 "response": response_text,
                 "session_id": session_id,
-                "history": updated_history,
             }
         )
     except Exception as e:
@@ -259,6 +280,26 @@ async def web_api_chat(request: Request) -> Response:
             },
             status=500,
         )
+
+
+async def web_api_history(request: Request) -> Response:
+    """Return the renderable transcript for a session, scoped to the signed-in user.
+
+    Lets the web UI re-render a prior conversation after a page reload. Returns an
+    empty list for an unknown session or one owned by a different user.
+    """
+    session = await get_session(request)
+    user = session.get("user", {})
+    owner_id = user.get("oid") or "web-user"
+
+    session_id = request.query.get("session_id", "")
+    if not session_id:
+        return web.json_response({"session_id": session_id, "messages": []})
+
+    sessions = request.app[SESSION_KEY]
+    sess = await sessions.get(session_id, owner_id)
+    messages = SessionService.renderable_messages(sess["history"]) if sess else []
+    return web.json_response({"session_id": session_id, "messages": messages})
 
 
 async def trigger_report(request: Request) -> Response:
@@ -310,6 +351,7 @@ def create_app() -> web.Application:
     app.router.add_post("/api/messages", messages)  # Teams bot endpoint
     app.router.add_get("/", web_chat)  # Web chat UI
     app.router.add_post("/api/chat", web_api_chat)  # Web chat API
+    app.router.add_get("/api/history", web_api_history)  # Load a session's transcript
     app.router.add_post("/api/report", trigger_report)  # Manual report trigger
 
     # Static files for web app
@@ -323,6 +365,8 @@ def create_app() -> web.Application:
         graph = GraphService()
         audit = AuditService()
         await audit.initialize()
+        sessions = SessionService()
+        await sessions.initialize()
 
         adapter = BotFrameworkAdapter(
             BotFrameworkAdapterSettings(
@@ -336,8 +380,9 @@ def create_app() -> web.Application:
         app[LLM_KEY] = llm
         app[GRAPH_KEY] = graph
         app[AUDIT_KEY] = audit
+        app[SESSION_KEY] = sessions
         app[REPORT_KEY] = ReportService(graph)
-        app[BOT_KEY] = GuardianBot(llm=llm, graph=graph, audit=audit)
+        app[BOT_KEY] = GuardianBot(llm=llm, graph=graph, audit=audit, sessions=sessions)
         app[ADAPTER_KEY] = adapter
 
         logger.info(f"M365 Guardian started on port {config.web_port}")
