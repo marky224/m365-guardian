@@ -21,21 +21,17 @@ logger = logging.getLogger(__name__)
 class GuardianBot(ActivityHandler):
     """Bot handler for M365 Guardian in Microsoft Teams."""
 
-    def __init__(self):
-        self.llm = LLMService()
-        self.graph = GraphService()
-        self.audit = AuditService()
-        self._audit_initialized = False
+    def __init__(self, llm: LLMService, graph: GraphService, audit: AuditService):
+        # Services are constructed and initialized once at app startup and
+        # injected here, so a single GuardianBot reuses shared clients.
+        self.llm = llm
+        self.graph = graph
+        self.audit = audit
         # In-memory session store (use Cosmos DB in production)
         self._sessions: dict[str, dict] = {}
 
     async def on_message_activity(self, turn_context: TurnContext):
         """Handle incoming messages."""
-        # Initialize audit service Cosmos DB connection on first message
-        if not self._audit_initialized:
-            await self.audit.initialize()
-            self._audit_initialized = True
-
         user_message = turn_context.activity.text or ""
         user_id = turn_context.activity.from_property.id or "unknown"
         user_name = turn_context.activity.from_property.name or "Unknown"
@@ -83,10 +79,12 @@ class GuardianBot(ActivityHandler):
                 await turn_context.send_activity(response_text)
 
         except Exception as e:
-            logger.error(f"Error handling message: {e}")
+            error_id = uuid.uuid4().hex[:8]
+            logger.error(f"Error handling message [error_id={error_id}]: {e}")
             await turn_context.send_activity(
-                f"⚠️ I encountered an error processing your request: {str(e)}\n\n"
-                "Please try again. If the issue persists, check the Azure Function logs."
+                "⚠️ I encountered an error processing your request "
+                f"(reference `{error_id}`).\n\nPlease try again. If the issue persists, "
+                "share this reference with your administrator."
             )
 
     async def on_members_added_activity(self, members_added, turn_context: TurnContext):

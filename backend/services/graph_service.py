@@ -40,6 +40,10 @@ class GraphService:
             scopes=["https://graph.microsoft.com/.default"],
         )
 
+    def close(self) -> None:
+        """Release the credential's underlying transport. Safe on shutdown."""
+        self._credential.close()
+
     # ── USER SEARCH ──────────────────────────────────────────────────
 
     async def search_users(
