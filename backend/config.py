@@ -87,15 +87,17 @@ class CosmosConfig:
 class BotConfig:
     app_id: str = ""
     app_password: str = ""
-    # NOTE: app_type is not consumed yet. The legacy BotFrameworkAdapter(Settings) used in
-    # app.py has no app_type/app_tenant_id knob; honoring SingleTenant requires migrating to
-    # CloudAdapter + ConfigurationBotFrameworkAuthentication. Default matches .env.template.
+    # app_type drives Bot Framework auth via CloudAdapter (D-016): SingleTenant | MultiTenant |
+    # UserAssignedMSI. SingleTenant/MSI also need app_tenant_id.
     app_type: str = "SingleTenant"
+    # Bot's home tenant for SingleTenant/MSI auth; defaults to the Entra tenant.
+    app_tenant_id: str = ""
 
     def __post_init__(self):
         self.app_id = os.getenv("BOT_APP_ID", "")
         self.app_password = os.getenv("BOT_APP_PASSWORD", "")
         self.app_type = os.getenv("BOT_APP_TYPE", "SingleTenant")
+        self.app_tenant_id = os.getenv("BOT_APP_TENANT_ID") or os.getenv("AZURE_TENANT_ID", "")
 
 
 @dataclass

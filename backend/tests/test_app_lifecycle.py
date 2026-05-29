@@ -52,19 +52,24 @@ class _FakeBot:
 
 
 class _FakeAdapter:
-    def __init__(self, settings):
-        self.settings = settings
+    def __init__(self, auth):
+        self.auth = auth
         self.on_turn_error = None
 
 
-def _patch_services(monkeypatch):
+def _patch_services(monkeypatch, *, bot_app_id="test-app-id"):
     monkeypatch.setattr(app_module, "LLMService", _FakeLLM)
     monkeypatch.setattr(app_module, "GraphService", _FakeGraph)
     monkeypatch.setattr(app_module, "AuditService", _FakeAudit)
     monkeypatch.setattr(app_module, "SessionService", _FakeSession)
     monkeypatch.setattr(app_module, "ReportService", _FakeReport)
     monkeypatch.setattr(app_module, "GuardianBot", _FakeBot)
-    monkeypatch.setattr(app_module, "BotFrameworkAdapter", _FakeAdapter)
+    # CloudAdapter is built from ConfigurationBotFrameworkAuthentication; fake both so the
+    # SingleTenant credential factory never validates/reaches the network.
+    monkeypatch.setattr(app_module, "CloudAdapter", _FakeAdapter)
+    monkeypatch.setattr(app_module, "ConfigurationBotFrameworkAuthentication", lambda cfg: cfg)
+    # The adapter is only built when a bot app id is configured.
+    monkeypatch.setattr(app_module.config.bot, "app_id", bot_app_id)
     # create_app fails fast on invalid config; tests carry no real env, so bypass it.
     monkeypatch.setattr(app_module.config, "ensure_valid", lambda: None)
 
@@ -109,6 +114,21 @@ async def test_startup_builds_shared_services_once_and_wires_them(monkeypatch):
     # Cleanup releases the Graph credential transport.
     await app.cleanup()
     assert graph.closed is True
+
+
+async def test_bot_adapter_disabled_without_creds(monkeypatch):
+    # No bot app id → the Teams adapter is not built, but the rest of the app still starts.
+    _patch_services(monkeypatch, bot_app_id="")
+    app = app_module.create_app()
+
+    app.on_startup.freeze()
+    await app.startup()
+    app.freeze()
+
+    assert app.get(app_module.ADAPTER_KEY) is None
+    # The bot itself is still constructed (used by the adapter when configured).
+    assert app[app_module.BOT_KEY] is not None
+    await app.cleanup()
 
 
 def test_bot_uses_injected_services_without_constructing_them():

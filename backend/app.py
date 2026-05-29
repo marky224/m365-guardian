@@ -15,8 +15,7 @@ from aiohttp.web import Request, Response
 from aiohttp_session import get_session
 from aiohttp_session import setup as session_setup
 from aiohttp_session.cookie_storage import EncryptedCookieStorage
-from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings
-from botbuilder.schema import Activity
+from botbuilder.integration.aiohttp import CloudAdapter, ConfigurationBotFrameworkAuthentication
 
 from backend.bot import GuardianBot
 from backend.config import config
@@ -51,13 +50,40 @@ AUDIT_KEY: web.AppKey[AuditService] = web.AppKey("audit", AuditService)
 SESSION_KEY: web.AppKey[SessionService] = web.AppKey("sessions", SessionService)
 REPORT_KEY: web.AppKey[ReportService] = web.AppKey("report_svc", ReportService)
 BOT_KEY: web.AppKey[GuardianBot] = web.AppKey("bot", GuardianBot)
-ADAPTER_KEY: web.AppKey[BotFrameworkAdapter] = web.AppKey("adapter", BotFrameworkAdapter)
+ADAPTER_KEY: web.AppKey[CloudAdapter] = web.AppKey("adapter", CloudAdapter)
 
 
 # Bot Framework turn-error handler
 async def on_error(context, error):
     logger.error(f"Bot error: {error}")
     await context.send_activity("⚠️ An unexpected error occurred. The incident has been logged.")
+
+
+class _BotAuthConfig:
+    """Adapts config.bot to the UPPER_SNAKE attributes botbuilder's auth factory reads.
+
+    Built at startup (after secret hydration) so APP_PASSWORD reflects the Key Vault value.
+    """
+
+    def __init__(self) -> None:
+        self.APP_ID = config.bot.app_id
+        self.APP_PASSWORD = config.bot.app_password
+        self.APP_TYPE = config.bot.app_type
+        self.APP_TENANTID = config.bot.app_tenant_id
+
+
+def _build_cloud_adapter() -> CloudAdapter | None:
+    """Build the Teams adapter from config, honoring BOT_APP_TYPE (D-016).
+
+    Returns None when no bot app id is configured (local web-only dev / CI), so the /api/messages
+    endpoint is simply disabled rather than failing startup — SingleTenant auth requires real creds.
+    """
+    if not config.bot.app_id:
+        logger.info("Bot app id not set — Teams bot endpoint disabled.")
+        return None
+    adapter = CloudAdapter(ConfigurationBotFrameworkAuthentication(_BotAuthConfig()))
+    adapter.on_turn_error = on_error
+    return adapter
 
 
 # ── MSAL Helper ──────────────────────────────────────────────────────
@@ -180,20 +206,12 @@ async def health(request: Request) -> Response:
 
 
 async def messages(request: Request) -> Response:
-    """Bot Framework messages endpoint (for Teams)."""
-    if "application/json" not in (request.content_type or ""):
-        return Response(status=415)
-
-    body = await request.json()
-    activity = Activity().deserialize(body)
-    auth_header = request.headers.get("Authorization", "")
-
-    adapter = request.app[ADAPTER_KEY]
+    """Bot Framework messages endpoint (for Teams). CloudAdapter handles auth + deserialization."""
+    adapter = request.app.get(ADAPTER_KEY)
+    if adapter is None:
+        return web.json_response({"error": "Bot endpoint is not configured."}, status=503)
     bot = request.app[BOT_KEY]
-    response = await adapter.process_activity(activity, auth_header, bot.on_turn)
-    if response:
-        return web.json_response(response.body, status=response.status)
-    return Response(status=201)
+    return await adapter.process(request, bot) or Response(status=201)
 
 
 async def web_chat(request: Request) -> web.StreamResponse:
@@ -422,22 +440,18 @@ def create_app() -> web.Application:
         sessions = SessionService()
         await sessions.initialize()
 
-        adapter = BotFrameworkAdapter(
-            BotFrameworkAdapterSettings(
-                app_id=config.bot.app_id,
-                app_password=config.bot.app_password,
-                channel_auth_tenant=config.azure_ad.tenant_id,
-            )
-        )
-        adapter.on_turn_error = on_error
-
         app[LLM_KEY] = llm
         app[GRAPH_KEY] = graph
         app[AUDIT_KEY] = audit
         app[SESSION_KEY] = sessions
         app[REPORT_KEY] = ReportService(graph)
         app[BOT_KEY] = GuardianBot(llm=llm, graph=graph, audit=audit, sessions=sessions)
-        app[ADAPTER_KEY] = adapter
+
+        # The Teams adapter is built only when bot creds are configured (SingleTenant auth
+        # requires them); otherwise /api/messages returns 503 and the web app still runs.
+        adapter = _build_cloud_adapter()
+        if adapter is not None:
+            app[ADAPTER_KEY] = adapter
 
         logger.info(f"M365 Guardian started on port {config.web_port}")
 
