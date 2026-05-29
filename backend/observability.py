@@ -6,15 +6,18 @@ via OpenTelemetry. Gated on APPLICATIONINSIGHTS_CONNECTION_STRING: with no conne
 string (local dev / tests) this is a no-op and logging stays console-only.
 
 configure_azure_monitor() enables a set of default instrumentations but NOT the aiohttp
-server, so AioHttpServerInstrumentor is added explicitly (per RESEARCH_FINDINGS §4). That
-creates a span per incoming request, which in turn correlates the logs emitted while
-handling it (trace/span ids attached automatically in App Insights).
+server or httpx client, so both are added explicitly:
+- AioHttpServerInstrumentor — a span per incoming request (also correlates the logs emitted
+  while handling it; trace/span ids attached automatically in App Insights).
+- HTTPXClientInstrumentor — spans for outgoing httpx calls, i.e. Microsoft Graph (msgraph-sdk)
+  and most LLM providers (litellm), so a chat turn shows its downstream calls end to end.
 """
 
 import logging
 
 from azure.monitor.opentelemetry import configure_azure_monitor
 from opentelemetry.instrumentation.aiohttp_server import AioHttpServerInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
 from backend.config import config
 
@@ -38,8 +41,9 @@ def setup_observability() -> bool:
         return False
 
     configure_azure_monitor(connection_string=config.appinsights_connection_string)
-    # aiohttp server is not among configure_azure_monitor's default instrumentations.
-    AioHttpServerInstrumentor().instrument()
+    # Neither aiohttp server nor httpx is among configure_azure_monitor's default instrumentations.
+    AioHttpServerInstrumentor().instrument()  # incoming requests
+    HTTPXClientInstrumentor().instrument()  # outgoing Graph + LLM calls
     _configured = True
     logger.info("Observability enabled — exporting traces/metrics/logs to App Insights.")
     return True

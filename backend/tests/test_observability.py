@@ -31,18 +31,23 @@ def test_setup_configures_once_and_is_idempotent(monkeypatch):
 
     instrument_calls = []
 
-    class _FakeInstrumentor:
-        def instrument(self):
-            instrument_calls.append(True)
+    def _fake_instrumentor(label):
+        class _Fake:
+            def instrument(self):
+                instrument_calls.append(label)
 
-    monkeypatch.setattr(obs, "AioHttpServerInstrumentor", _FakeInstrumentor)
+        return _Fake
+
+    monkeypatch.setattr(obs, "AioHttpServerInstrumentor", _fake_instrumentor("aiohttp-server"))
+    monkeypatch.setattr(obs, "HTTPXClientInstrumentor", _fake_instrumentor("httpx"))
 
     assert obs.setup_observability() is True
     assert len(monitor_calls) == 1
     assert monitor_calls[0]["connection_string"].startswith("InstrumentationKey=")
-    assert len(instrument_calls) == 1
+    # Both the incoming (aiohttp-server) and outgoing (httpx) instrumentors run once.
+    assert sorted(instrument_calls) == ["aiohttp-server", "httpx"]
 
     # Second call is a no-op (already configured) — no double instrumentation.
     assert obs.setup_observability() is True
     assert len(monitor_calls) == 1
-    assert len(instrument_calls) == 1
+    assert sorted(instrument_calls) == ["aiohttp-server", "httpx"]
