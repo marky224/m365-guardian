@@ -13,6 +13,7 @@ from backend.config import config
 from backend.services.audit_service import AuditService
 from backend.services.graph_service import GraphService
 from backend.services.llm_service import LLMService
+from backend.services.session_service import SessionService
 from backend.tools.executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -21,14 +22,19 @@ logger = logging.getLogger(__name__)
 class GuardianBot(ActivityHandler):
     """Bot handler for M365 Guardian in Microsoft Teams."""
 
-    def __init__(self, llm: LLMService, graph: GraphService, audit: AuditService):
+    def __init__(
+        self,
+        llm: LLMService,
+        graph: GraphService,
+        audit: AuditService,
+        sessions: SessionService,
+    ):
         # Services are constructed and initialized once at app startup and
         # injected here, so a single GuardianBot reuses shared clients.
         self.llm = llm
         self.graph = graph
         self.audit = audit
-        # In-memory session store (use Cosmos DB in production)
-        self._sessions: dict[str, dict] = {}
+        self.sessions = sessions
 
     async def on_message_activity(self, turn_context: TurnContext):
         """Handle incoming messages."""
@@ -38,8 +44,14 @@ class GuardianBot(ActivityHandler):
         user_email = turn_context.activity.from_property.aad_object_id or user_id
         conversation_id = turn_context.activity.conversation.id
 
-        # Get or create session
-        session = self._get_or_create_session(conversation_id, user_id, user_name, user_email)
+        # Durable session keyed by the Bot Framework-trusted conversation id, which is
+        # also the owner partition — the conversation's history is shared by its members.
+        session = await self.sessions.get_or_create(
+            conversation_id,
+            owner_id=conversation_id,
+            user_name=user_name,
+            user_email=user_email,
+        )
 
         # Create tool executor for this session
         executor = ToolExecutor(
@@ -67,8 +79,14 @@ class GuardianBot(ActivityHandler):
                 tool_executor=executor.execute,
             )
 
-            # Update session history
-            session["history"] = updated_history
+            # Persist updated history durably (refreshes the session TTL)
+            await self.sessions.save(
+                conversation_id,
+                owner_id=conversation_id,
+                history=updated_history,
+                user_name=user_name,
+                user_email=user_email,
+            )
 
             # Send response (split if > 4000 chars for Teams)
             if len(response_text) > 4000:
@@ -103,15 +121,3 @@ class GuardianBot(ActivityHandler):
                     'Try: *"Create a new user named Jane Doe in the Engineering department"*'
                 )
                 await turn_context.send_activity(welcome)
-
-    def _get_or_create_session(self, conversation_id: str, user_id: str, user_name: str, user_email: str) -> dict:
-        """Get existing session or create a new one."""
-        if conversation_id not in self._sessions:
-            self._sessions[conversation_id] = {
-                "session_id": str(uuid.uuid4()),
-                "user_id": user_id,
-                "user_name": user_name,
-                "user_email": user_email,
-                "history": [],
-            }
-        return self._sessions[conversation_id]

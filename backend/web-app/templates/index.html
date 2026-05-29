@@ -196,8 +196,9 @@
         const userInput = document.getElementById('user-input');
         const sendBtn = document.getElementById('send-btn');
 
-        let sessionId = crypto.randomUUID();
-        let history = [];
+        // Persist the session id so a reload resumes the same server-side conversation.
+        let sessionId = localStorage.getItem('m365_session_id') || crypto.randomUUID();
+        localStorage.setItem('m365_session_id', sessionId);
 
         function addMessage(text, role) {
             const div = document.createElement('div');
@@ -245,8 +246,6 @@
                     body: JSON.stringify({
                         message: text,
                         session_id: sessionId,
-                        history: history,
-                        user_name: 'Web User',
                     }),
                 });
 
@@ -257,7 +256,6 @@
                     addMessage(`⚠️ Error: ${data.error}`, 'bot');
                 } else {
                     addMessage(data.response, 'bot');
-                    history = data.history || [];
                 }
             } catch (err) {
                 hideTyping();
@@ -273,11 +271,25 @@
             send();
         }
 
+        // Re-render the durable conversation for this session after a page reload.
+        async function loadHistory() {
+            try {
+                const resp = await fetch('/api/history?session_id=' + encodeURIComponent(sessionId));
+                if (!resp.ok) return;
+                const data = await resp.json();
+                (data.messages || []).forEach(m => addMessage(m.text, m.role));
+            } catch (err) {
+                // Non-fatal — start with an empty transcript.
+            }
+        }
+
         // Auto-resize textarea
         userInput.addEventListener('input', function() {
             this.style.height = 'auto';
             this.style.height = Math.min(this.scrollHeight, 120) + 'px';
         });
+
+        loadHistory();
     </script>
 </body>
 </html>
