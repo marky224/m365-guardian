@@ -143,25 +143,30 @@ M365 Guardian supports one-click LLM swapping via LiteLLM:
 
 ## Production Hardening
 
-M365 Guardian runs on Azure with platform-managed identity and secrets. All four features below are
+M365 Guardian runs on Azure with platform-managed identity and secrets. Every feature below is
 **environment-gated**, so a local checkout runs with no Azure dependencies.
 
 - **Managed identity for Graph** — app-only Microsoft Graph auth uses `DefaultAzureCredential` (the
   App Service's managed identity in Azure; falls back to the env client secret / `az login` locally).
   Grant the identity the required Graph **application permissions** (admin consent).
+- **Managed identity for Cosmos** — leave `COSMOS_KEY` blank in production and the app authenticates
+  to Cosmos with managed identity (AAD RBAC); grant the identity a Cosmos data-plane role. Set the key
+  for local dev / the emulator.
 - **Key Vault for secrets** — set `KEY_VAULT_URL` and the app fetches `azure-client-secret`,
   `llm-api-key`, `bot-app-password`, `cosmos-key`, and `session-secret` from Key Vault at startup via
   managed identity. With it unset, secrets come from the environment / `.env` (local dev).
 - **Durable sessions** — conversation history is stored in the Cosmos `sessions` container (partition
   key `/owner_id`, 30-day TTL), so sessions survive restarts and scale across instances. History is
   scoped to the authenticated user.
+- **Bot authentication** — the Teams endpoint uses `CloudAdapter`, honoring `BOT_APP_TYPE`
+  (SingleTenant / MultiTenant / UserAssignedMSI). The endpoint is enabled only when `BOT_APP_ID` is set.
 - **Observability** — set `APPLICATIONINSIGHTS_CONNECTION_STRING` to ship traces, metrics, and
-  request-correlated logs to Application Insights (OpenTelemetry + aiohttp-server instrumentation).
-  Unset = console logging only.
+  request-correlated logs to Application Insights (OpenTelemetry; aiohttp-server + httpx instrumentation,
+  so incoming requests and outgoing Graph/LLM calls are traced end to end). Unset = console logging only.
 
 ## Security Principles
 
-- **Mandatory confirmation** — every write action requires explicit `YES`
+- **Two-layer write confirmation** — server-enforced, not just prompted. Layer 1 gates every write; Layer 2 binds approval to a human **Approve** action (web buttons / Teams Adaptive Card) validated in code against a server-minted token — so a prompt-injected model cannot self-approve
 - **Least-privilege** — Graph permissions are scoped to exactly what's needed
 - **Full audit trail** — every action logged with who, what, when, and transcript
 - **IP restriction** — Azure App Service access restrictions block unauthorized IPs at the platform level before they reach the application
