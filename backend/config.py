@@ -5,6 +5,7 @@ Loads settings from environment variables with validation.
 
 import os
 from dataclasses import dataclass, field
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -111,30 +112,52 @@ class ReportConfig:
 
 
 @dataclass
+class SecurityConfig:
+    # Entra ID security group that an admin-created Conditional Access policy targets to
+    # require MFA. enforce_mfa adds/removes users from this group. Empty = not configured,
+    # in which case enforce_mfa returns an honest "not available" result rather than faking success.
+    mfa_required_group_id: str = ""
+
+    def __post_init__(self):
+        self.mfa_required_group_id = os.getenv("MFA_REQUIRED_GROUP_ID", "")
+
+
+@dataclass
 class AppConfig:
     azure_ad: AzureADConfig = field(default_factory=AzureADConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     cosmos: CosmosConfig = field(default_factory=CosmosConfig)
     bot: BotConfig = field(default_factory=BotConfig)
     report: ReportConfig = field(default_factory=ReportConfig)
+    security: SecurityConfig = field(default_factory=SecurityConfig)
     web_port: int = 8080
     base_url: str = ""
     log_level: str = "INFO"
     session_secret: str = ""
 
     def __post_init__(self):
-        self.web_port = int(os.getenv("PORT", os.getenv("WEB_APP_PORT", "8080")))
-        self.base_url = os.getenv("WEB_APP_BASE_URL", "http://localhost:8080")
-        self.log_level = os.getenv("LOG_LEVEL", "INFO")
-        self.session_secret = os.getenv("SESSION_SECRET", "change-me-in-production")
+        self.web_port = int(os.getenv("PORT") or os.getenv("WEB_APP_PORT") or "8080")
+        self.base_url = os.getenv("WEB_APP_BASE_URL") or "http://localhost:8080"
+        self.log_level = os.getenv("LOG_LEVEL") or "INFO"
+        self.session_secret = os.getenv("SESSION_SECRET") or "change-me-in-production"
 
     def validate(self) -> list[str]:
-        errors = self.azure_ad.validate()
+        errors: list[str] = self.azure_ad.validate()
         if not self.llm.api_key:
             errors.append(f"API key is required for LLM_PROVIDER={self.llm.provider}")
         if self.session_secret == "change-me-in-production":
             errors.append("SESSION_SECRET must be set for production")
         return errors
+
+    def ensure_valid(self) -> None:
+        """Raise if the configuration is invalid. Call at process startup to fail fast."""
+        errors = self.validate()
+        if errors:
+            bullets = "\n  - ".join(errors)
+            raise RuntimeError(
+                f"Invalid M365 Guardian configuration ({len(errors)} error(s)):\n  - {bullets}\n"
+                "Set the missing environment variables (see .env.template) and restart."
+            )
 
 
 # Singleton

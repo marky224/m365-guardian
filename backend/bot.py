@@ -5,14 +5,14 @@ Handles incoming messages from Teams via Azure Bot Service.
 
 import logging
 import uuid
-from typing import Any
 
 from botbuilder.core import ActivityHandler, TurnContext
 from botbuilder.schema import Activity, ActivityTypes
 
-from backend.services.llm_service import LLMService
-from backend.services.graph_service import GraphService
+from backend.config import config
 from backend.services.audit_service import AuditService
+from backend.services.graph_service import GraphService
+from backend.services.llm_service import LLMService
 from backend.tools.executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,7 @@ class GuardianBot(ActivityHandler):
             session_id=session["session_id"],
             technician_id=user_id,
             technician_email=user_email,
+            mfa_required_group_id=config.security.mfa_required_group_id,
         )
 
         # Show typing indicator
@@ -75,7 +76,7 @@ class GuardianBot(ActivityHandler):
 
             # Send response (split if > 4000 chars for Teams)
             if len(response_text) > 4000:
-                chunks = [response_text[i:i+3900] for i in range(0, len(response_text), 3900)]
+                chunks = [response_text[i : i + 3900] for i in range(0, len(response_text), 3900)]
                 for chunk in chunks:
                     await turn_context.send_activity(chunk)
             else:
@@ -101,13 +102,11 @@ class GuardianBot(ActivityHandler):
                     "• **Mailbox management** — Shared mailboxes, permissions\n"
                     "• **Security insights** — Weekly reports on your tenant health\n\n"
                     "All actions require your explicit approval and are fully logged.\n\n"
-                    "Try: *\"Create a new user named Jane Doe in the Engineering department\"*"
+                    'Try: *"Create a new user named Jane Doe in the Engineering department"*'
                 )
                 await turn_context.send_activity(welcome)
 
-    def _get_or_create_session(
-        self, conversation_id: str, user_id: str, user_name: str, user_email: str
-    ) -> dict:
+    def _get_or_create_session(self, conversation_id: str, user_id: str, user_name: str, user_email: str) -> dict:
         """Get existing session or create a new one."""
         if conversation_id not in self._sessions:
             self._sessions[conversation_id] = {

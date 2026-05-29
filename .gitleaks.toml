@@ -1,0 +1,21 @@
+# Gitleaks configuration for M365 Guardian.
+# Extends the built-in ruleset (do not disable it) and adds narrowly-scoped
+# allowlists so the placeholder env template never trips a false positive.
+# Verify locally:  gitleaks dir . --config .gitleaks.toml
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "M365 Guardian allowlist"
+# .env.template contains only placeholder values (your-*, change-me-*, contoso.com).
+# The real .env is gitignored and never scanned from the repo.
+paths = [
+    '''\.env\.template$''',
+]
+# Defense-in-depth: even outside the template, these obvious placeholder tokens
+# are never real secrets.
+regexes = [
+    '''your-[a-z-]+''',
+    '''change-me-in-production''',
+]

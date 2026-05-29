@@ -5,10 +5,10 @@ Records every action for compliance and traceability.
 
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 from azure.cosmos import CosmosClient, PartitionKey
+
 from backend.config import config
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ class AuditService:
         entry = {
             "id": audit_id,
             "session_id": session_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "technician_id": technician_id,
             "technician_email": technician_email,
             "action": action,
@@ -79,10 +79,7 @@ class AuditService:
                 logger.error(f"Failed to write audit log to Cosmos DB: {e}")
 
         # Always log locally
-        logger.info(
-            f"AUDIT | {entry['timestamp']} | {technician_email} | "
-            f"{tool_name} | {status} | {audit_id}"
-        )
+        logger.info(f"AUDIT | {entry['timestamp']} | {technician_email} | {tool_name} | {status} | {audit_id}")
 
         return audit_id
 
@@ -114,10 +111,7 @@ class AuditService:
             conditions.append("c.technician_email = @by")
             params.append({"name": "@by", "value": performed_by})
 
-        query = (
-            f"SELECT TOP {top} * FROM c WHERE {' AND '.join(conditions)} "
-            f"ORDER BY c.timestamp DESC"
-        )
+        query = f"SELECT TOP {top} * FROM c WHERE {' AND '.join(conditions)} ORDER BY c.timestamp DESC"
 
         try:
             items = list(self._container.query_items(query, parameters=params, enable_cross_partition_query=True))

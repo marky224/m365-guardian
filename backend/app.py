@@ -4,22 +4,21 @@ Serves the Teams bot endpoint, the standalone web app, and the scheduled report 
 Includes Entra ID authentication for web routes.
 """
 
-import base64
 import hashlib
 import logging
 import os
-import sys
 
 import msal
 from aiohttp import web
 from aiohttp.web import Request, Response
-from aiohttp_session import setup as session_setup, get_session
+from aiohttp_session import get_session
+from aiohttp_session import setup as session_setup
 from aiohttp_session.cookie_storage import EncryptedCookieStorage
 from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings
 from botbuilder.schema import Activity
 
-from backend.config import config
 from backend.bot import GuardianBot
+from backend.config import config
 
 # ── Logging ──────────────────────────────────────────────────────────
 
@@ -40,10 +39,12 @@ adapter_settings = BotFrameworkAdapterSettings(
 )
 adapter = BotFrameworkAdapter(adapter_settings)
 
+
 # Error handler
 async def on_error(context, error):
     logger.error(f"Bot error: {error}")
     await context.send_activity("⚠️ An unexpected error occurred. The incident has been logged.")
+
 
 adapter.on_turn_error = on_error
 
@@ -52,6 +53,7 @@ bot = GuardianBot()
 
 
 # ── MSAL Helper ──────────────────────────────────────────────────────
+
 
 def _get_msal_app() -> msal.ConfidentialClientApplication:
     """Create an MSAL confidential client for Entra ID auth."""
@@ -82,6 +84,7 @@ async def auth_middleware(request, handler):
 
 
 # ── Auth Routes ──────────────────────────────────────────────────────
+
 
 async def auth_login(request: Request) -> Response:
     """Redirect the user to Microsoft sign-in."""
@@ -162,6 +165,7 @@ async def auth_me(request: Request) -> Response:
 
 # ── Routes ───────────────────────────────────────────────────────────
 
+
 async def health(request: Request) -> Response:
     """Health check endpoint."""
     return web.json_response({"status": "healthy", "service": "m365-guardian"})
@@ -182,7 +186,7 @@ async def messages(request: Request) -> Response:
     return Response(status=201)
 
 
-async def web_chat(request: Request) -> Response:
+async def web_chat(request: Request) -> web.StreamResponse:
     """Serve the standalone web chat interface."""
     html_path = os.path.join(os.path.dirname(__file__), "web-app", "templates", "index.html")
     if os.path.exists(html_path):
@@ -196,12 +200,12 @@ async def web_chat(request: Request) -> Response:
 
 async def web_api_chat(request: Request) -> Response:
     """REST API endpoint for the web chat interface."""
-    import json
     import uuid
-    from backend.services.llm_service import LLMService
-    from backend.services.graph_service import GraphService
-    from backend.tools.executor import ToolExecutor
+
     from backend.services.audit_service import AuditService
+    from backend.services.graph_service import GraphService
+    from backend.services.llm_service import LLMService
+    from backend.tools.executor import ToolExecutor
 
     # Get authenticated user from session
     session = await get_session(request)
@@ -223,6 +227,7 @@ async def web_api_chat(request: Request) -> Response:
         session_id=session_id,
         technician_id=user.get("oid", body.get("user_id", "web-user")),
         technician_email=user.get("email", body.get("user_email", "web-user@unknown")),
+        mfa_required_group_id=config.security.mfa_required_group_id,
     )
 
     try:
@@ -237,11 +242,13 @@ async def web_api_chat(request: Request) -> Response:
             tool_executor=executor.execute,
         )
 
-        return web.json_response({
-            "response": response_text,
-            "session_id": session_id,
-            "history": updated_history,
-        })
+        return web.json_response(
+            {
+                "response": response_text,
+                "session_id": session_id,
+                "history": updated_history,
+            }
+        )
     except Exception as e:
         logger.error(f"Web chat error: {e}")
         return web.json_response(
@@ -268,8 +275,11 @@ async def trigger_report(request: Request) -> Response:
 
 # ── App Factory ──────────────────────────────────────────────────────
 
+
 def create_app() -> web.Application:
     """Create and configure the aiohttp application."""
+    config.ensure_valid()  # fail fast on missing/placeholder configuration
+
     app = web.Application()
 
     # Session setup FIRST — must be registered before auth middleware
@@ -287,10 +297,10 @@ def create_app() -> web.Application:
 
     # App routes
     app.router.add_get("/health", health)
-    app.router.add_post("/api/messages", messages)          # Teams bot endpoint
-    app.router.add_get("/", web_chat)                        # Web chat UI
-    app.router.add_post("/api/chat", web_api_chat)           # Web chat API
-    app.router.add_post("/api/report", trigger_report)       # Manual report trigger
+    app.router.add_post("/api/messages", messages)  # Teams bot endpoint
+    app.router.add_get("/", web_chat)  # Web chat UI
+    app.router.add_post("/api/chat", web_api_chat)  # Web chat API
+    app.router.add_post("/api/report", trigger_report)  # Manual report trigger
 
     # Static files for web app
     static_path = os.path.join(os.path.dirname(__file__), "web-app", "static")

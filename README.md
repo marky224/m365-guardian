@@ -163,14 +163,14 @@ Assign via: **Entra ID → Roles and administrators → Helpdesk Administrator �
 | `update_user` | Write | Update user properties |
 | `delete_user` | Write | Soft-delete user (30-day recovery) |
 | `reset_password` | Write | Reset password with temp generation |
-| `enforce_mfa` | Write | Enable/enforce per-user MFA |
+| `enforce_mfa` | Write | Enforce MFA via group-based Conditional Access (adds/removes user from an MFA-required group) |
 | `list_available_licenses` | Read | List tenant license SKUs |
 | `assign_license` | Write | Assign license to user |
 | `remove_license` | Write | Remove license from user |
 | `manage_group_membership` | Write | Add/remove group members |
-| `manage_shared_mailbox` | Write | Create/manage shared mailboxes |
-| `manage_distribution_group` | Write | Create/manage distribution groups |
-| `check_mailbox_status` | Read | Check mailbox provisioning + health |
+| `manage_shared_mailbox` | Write | ⏳ Not yet implemented — requires Exchange Online PowerShell (see [docs/05_EXCHANGE_ONLINE_INTEGRATION.md](docs/05_EXCHANGE_ONLINE_INTEGRATION.md)) |
+| `manage_distribution_group` | Write | ⏳ Not yet implemented — requires Exchange Online PowerShell (see [docs/05_EXCHANGE_ONLINE_INTEGRATION.md](docs/05_EXCHANGE_ONLINE_INTEGRATION.md)) |
+| `check_mailbox_status` | Read | Check mailbox provisioning + forwarding |
 | `generate_weekly_insights_report` | Read | Run all 10 security checks |
 | `send_report_to_teams` | Write | Post Adaptive Card to Teams |
 | `send_report_via_email` | Write | Send HTML report via email |

@@ -4,8 +4,7 @@ Runs all 10 security checks and generates the formatted report.
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 from backend.services.graph_service import GraphService
 
@@ -43,7 +42,7 @@ class ReportService:
             "password_hygiene",
         ]
         checks = checks or all_checks
-        report_time = datetime.now(timezone.utc).isoformat()
+        report_time = datetime.now(UTC).isoformat()
 
         sections = []
         critical_count = 0
@@ -61,15 +60,17 @@ class ReportService:
                         warning_count += 1
                 except Exception as e:
                     logger.error(f"Check '{check}' failed: {e}")
-                    sections.append({
-                        "check": check,
-                        "title": check.replace("_", " ").title(),
-                        "severity": SEVERITY_WARNING,
-                        "finding_count": 0,
-                        "summary": f"Check failed: {e}",
-                        "items": [],
-                        "fix_command": None,
-                    })
+                    sections.append(
+                        {
+                            "check": check,
+                            "title": check.replace("_", " ").title(),
+                            "severity": SEVERITY_WARNING,
+                            "finding_count": 0,
+                            "summary": f"Check failed: {e}",
+                            "items": [],
+                            "fix_command": None,
+                        }
+                    )
 
         # Build executive summary
         total_findings = sum(s["finding_count"] for s in sections)
@@ -171,12 +172,13 @@ class ReportService:
 
     async def _check_license_optimization(self, *_) -> dict:
         licenses = await self.graph.list_licenses(include_disabled=True)
-        wasted = [l for l in licenses if l["availableUnits"] > 5]
+        wasted = [lic for lic in licenses if lic["availableUnits"] > 5]
         count = len(wasted)
         severity = SEVERITY_WARNING if count > 0 else SEVERITY_OK
         summary = (
             f"{count} license SKU(s) with significant unused capacity."
-            if count > 0 else "License utilization is healthy."
+            if count > 0
+            else "License utilization is healthy."
         )
 
         return {
