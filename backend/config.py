@@ -134,12 +134,16 @@ class AppConfig:
     base_url: str = ""
     log_level: str = "INFO"
     session_secret: str = ""
+    # App Insights connection string. Empty = telemetry disabled (local dev). Azure App
+    # Service injects APPLICATIONINSIGHTS_CONNECTION_STRING automatically when enabled.
+    appinsights_connection_string: str = ""
 
     def __post_init__(self):
         self.web_port = int(os.getenv("PORT") or os.getenv("WEB_APP_PORT") or "8080")
         self.base_url = os.getenv("WEB_APP_BASE_URL") or "http://localhost:8080"
         self.log_level = os.getenv("LOG_LEVEL") or "INFO"
         self.session_secret = os.getenv("SESSION_SECRET") or "change-me-in-production"
+        self.appinsights_connection_string = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "")
 
     def validate(self) -> list[str]:
         errors: list[str] = self.azure_ad.validate()

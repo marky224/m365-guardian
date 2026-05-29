@@ -20,6 +20,7 @@ from botbuilder.schema import Activity
 
 from backend.bot import GuardianBot
 from backend.config import config
+from backend.observability import setup_observability
 from backend.services.audit_service import AuditService
 from backend.services.graph_service import GraphService
 from backend.services.llm_service import LLMService
@@ -134,7 +135,7 @@ async def auth_callback(request: Request) -> Response:
             "oid": claims.get("oid", ""),
             "tenant_id": claims.get("tid", ""),
         }
-        logger.info(f"User signed in: {claims.get('preferred_username', 'unknown')}")
+        logger.info(f"User signed in (oid={claims.get('oid', 'unknown')}).")
         raise web.HTTPFound("/")
 
     logger.warning(f"Token acquisition failed: {result.get('error_description', 'unknown error')}")
@@ -148,9 +149,9 @@ async def auth_callback(request: Request) -> Response:
 async def auth_logout(request: Request) -> Response:
     """Clear the session and redirect to Microsoft sign-out."""
     session = await get_session(request)
-    user_email = session.get("user", {}).get("email", "unknown")
+    user_oid = session.get("user", {}).get("oid", "unknown")
     session.clear()
-    logger.info(f"User signed out: {user_email}")
+    logger.info(f"User signed out (oid={user_oid}).")
 
     # Redirect to Microsoft sign-out, then back to health page
     logout_url = (
@@ -323,6 +324,9 @@ async def trigger_report(request: Request) -> Response:
 
 def create_app() -> web.Application:
     """Create and configure the aiohttp application."""
+    # Wire telemetry first so startup logs are captured (no-op without a connection string).
+    setup_observability()
+
     # Resolve secrets before anything reads them: Key Vault in prod (KEY_VAULT_URL),
     # environment/.env locally. hydrate() is synchronous, so it runs here — ahead of
     # session_setup, which derives the cookie key from the (now hydrated) session_secret.
