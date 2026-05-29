@@ -35,15 +35,16 @@ class AzureADConfig:
 
 @dataclass
 class LLMConfig:
-    provider: str = "anthropic"
-    model: str = "claude-sonnet-4-20250514"
+    # Defaults match .env.template (the documented deployment config).
+    provider: str = "xai"
+    model: str = "grok-4-1-fast-reasoning"
     api_key: str = ""
     max_tokens: int = 4096
     temperature: float = 0.1
 
     def __post_init__(self):
-        self.provider = os.getenv("LLM_PROVIDER", "anthropic")
-        self.model = os.getenv("LLM_MODEL", "claude-sonnet-4-20250514")
+        self.provider = os.getenv("LLM_PROVIDER", "xai")
+        self.model = os.getenv("LLM_MODEL", "grok-4-1-fast-reasoning")
         key_map = {
             "anthropic": "ANTHROPIC_API_KEY",
             "xai": "XAI_API_KEY",
@@ -86,12 +87,15 @@ class CosmosConfig:
 class BotConfig:
     app_id: str = ""
     app_password: str = ""
-    app_type: str = "MultiTenant"
+    # NOTE: app_type is not consumed yet. The legacy BotFrameworkAdapter(Settings) used in
+    # app.py has no app_type/app_tenant_id knob; honoring SingleTenant requires migrating to
+    # CloudAdapter + ConfigurationBotFrameworkAuthentication. Default matches .env.template.
+    app_type: str = "SingleTenant"
 
     def __post_init__(self):
         self.app_id = os.getenv("BOT_APP_ID", "")
         self.app_password = os.getenv("BOT_APP_PASSWORD", "")
-        self.app_type = os.getenv("BOT_APP_TYPE", "MultiTenant")
+        self.app_type = os.getenv("BOT_APP_TYPE", "SingleTenant")
 
 
 @dataclass
