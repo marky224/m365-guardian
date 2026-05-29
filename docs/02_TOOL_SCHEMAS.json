@@ -2,217 +2,242 @@
   "tools": [
     {
       "name": "search_users",
-      "description": "Search for users in Microsoft Entra ID by display name, email, UPN, or other attributes. Use this before any user modification to confirm the target user. Returns up to 25 results.",
+      "description": "Search Entra ID users by display name, email, or UPN. Returns matching users with key attributes.",
       "input_schema": {
         "type": "object",
         "properties": {
           "query": {
             "type": "string",
-            "description": "Free-text search query — matches against displayName, mail, userPrincipalName, and jobTitle."
+            "description": "Free-text term matched against displayName, mail, or userPrincipalName."
           },
           "filter": {
             "type": "string",
-            "description": "Optional OData $filter expression for precise queries, e.g. \"accountEnabled eq false\" or \"department eq 'Engineering'\"."
+            "description": "Optional OData $filter (used instead of free-text search when provided)."
           },
           "select": {
             "type": "array",
-            "items": { "type": "string" },
-            "description": "Optional list of properties to return. Defaults to id, displayName, userPrincipalName, mail, accountEnabled, assignedLicenses.",
-            "default": ["id", "displayName", "userPrincipalName", "mail", "accountEnabled", "assignedLicenses", "department", "jobTitle"]
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional list of user properties to return."
           },
           "top": {
             "type": "integer",
-            "description": "Max results to return (1–25).",
-            "default": 10,
-            "minimum": 1,
-            "maximum": 25
+            "description": "Maximum number of results to return (default 10)."
           }
         },
-        "required": ["query"]
+        "required": [
+          "query"
+        ]
       }
     },
     {
       "name": "get_user_details",
-      "description": "Retrieve full details for a specific user by their Entra ID object ID or UPN. Includes license assignments, MFA methods, sign-in activity, group memberships, and directory roles.",
+      "description": "Get a comprehensive profile for one user, optionally including MFA methods and sign-in activity.",
       "input_schema": {
         "type": "object",
         "properties": {
           "user_id": {
             "type": "string",
-            "description": "The user's Entra ID object ID (GUID) or userPrincipalName."
+            "description": "User object id or userPrincipalName."
           },
           "include_mfa": {
             "type": "boolean",
-            "description": "If true, also retrieve registered MFA/authentication methods.",
-            "default": true
+            "description": "Include registered authentication methods (default true)."
           },
           "include_sign_in_activity": {
             "type": "boolean",
-            "description": "If true, include last sign-in date and risk details.",
-            "default": true
+            "description": "Include last sign-in timestamps (default true)."
           },
           "include_groups": {
             "type": "boolean",
-            "description": "If true, include group and role memberships.",
-            "default": false
+            "description": "Include group memberships (default false)."
           }
         },
-        "required": ["user_id"]
+        "required": [
+          "user_id"
+        ]
       }
     },
     {
       "name": "create_user",
-      "description": "Create a new user in Microsoft Entra ID. Optionally assigns a license and provisions an Exchange Online mailbox. REQUIRES explicit user confirmation before execution.",
+      "description": "Create a new Entra ID user. Requires confirmation before execution.",
       "input_schema": {
         "type": "object",
         "properties": {
           "display_name": {
             "type": "string",
-            "description": "Full display name, e.g. 'Jane Doe'."
+            "description": "Full display name (e.g., 'Jane Doe')."
           },
           "mail_nickname": {
             "type": "string",
-            "description": "Mail alias (part before @), e.g. 'jane.doe'."
+            "description": "Mailbox nickname / alias (e.g., 'jane.doe')."
           },
           "user_principal_name": {
             "type": "string",
-            "description": "Full UPN including domain, e.g. 'jane.doe@contoso.com'."
+            "description": "Full UPN (e.g., 'jane.doe@contoso.com')."
           },
           "password": {
             "type": "string",
-            "description": "Temporary password. Must meet tenant password policy. The user will be forced to change at next sign-in."
+            "description": "Initial password for the new account."
           },
           "force_change_password": {
             "type": "boolean",
-            "description": "Force the user to change password on first sign-in.",
-            "default": true
+            "description": "Require password change at next sign-in (default true)."
           },
           "account_enabled": {
             "type": "boolean",
-            "description": "Whether the account is enabled upon creation.",
-            "default": true
+            "description": "Whether the account is enabled (default true)."
           },
           "department": {
             "type": "string",
-            "description": "Optional department name."
+            "description": "Department name."
           },
           "job_title": {
             "type": "string",
-            "description": "Optional job title."
+            "description": "Job title."
           },
           "usage_location": {
             "type": "string",
-            "description": "Two-letter ISO country code (required for license assignment), e.g. 'US'."
+            "description": "Two-letter usage location, required before assigning licenses (e.g., 'US')."
           },
           "license_sku_id": {
             "type": "string",
-            "description": "Optional license SKU ID to assign (e.g., Microsoft 365 Business Basic). Use list_available_licenses to find valid SKU IDs."
+            "description": "Optional license SKU id to assign to the new user."
           },
-          "provision_mailbox": {
+          "confirm": {
             "type": "boolean",
-            "description": "If true AND a license with Exchange is assigned, wait for mailbox provisioning and confirm.",
-            "default": true
+            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
-        "required": ["display_name", "mail_nickname", "user_principal_name", "password", "usage_location"]
+        "required": [
+          "display_name",
+          "mail_nickname",
+          "user_principal_name",
+          "password"
+        ]
       }
     },
     {
       "name": "update_user",
-      "description": "Update properties of an existing Entra ID user. REQUIRES explicit user confirmation before execution.",
+      "description": "Update properties of an existing user. Requires confirmation before execution.",
       "input_schema": {
         "type": "object",
         "properties": {
           "user_id": {
             "type": "string",
-            "description": "The user's Entra ID object ID or UPN."
+            "description": "User object id or userPrincipalName."
           },
           "updates": {
             "type": "object",
-            "description": "Key-value pairs of properties to update. Supported: displayName, givenName, surname, jobTitle, department, companyName, officeLocation, mobilePhone, businessPhones, usageLocation, accountEnabled.",
-            "additionalProperties": true
+            "description": "Map of properties to change. Supported keys: displayName, givenName, surname, jobTitle, department, companyName, officeLocation, mobilePhone, usageLocation, accountEnabled."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
-        "required": ["user_id", "updates"]
+        "required": [
+          "user_id",
+          "updates"
+        ]
       }
     },
     {
       "name": "delete_user",
-      "description": "Soft-delete a user from Entra ID (moved to Deleted Users, recoverable for 30 days). REQUIRES explicit user confirmation. This is a HIGH-RISK action.",
+      "description": "Soft-delete a user (recoverable for 30 days). Requires confirmation before execution.",
       "input_schema": {
         "type": "object",
         "properties": {
           "user_id": {
             "type": "string",
-            "description": "The user's Entra ID object ID or UPN to delete."
+            "description": "User object id or userPrincipalName."
           },
-          "reason": {
-            "type": "string",
-            "description": "Mandatory reason for deletion — recorded in the audit log."
+          "confirm": {
+            "type": "boolean",
+            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
-        "required": ["user_id", "reason"]
+        "required": [
+          "user_id"
+        ]
       }
     },
     {
       "name": "reset_password",
-      "description": "Reset a user's password and optionally force change at next sign-in. REQUIRES explicit user confirmation.",
+      "description": "Reset a user's password. If no password is supplied, a secure one is generated. Requires confirmation.",
       "input_schema": {
         "type": "object",
         "properties": {
           "user_id": {
             "type": "string",
-            "description": "The user's Entra ID object ID or UPN."
+            "description": "User object id or userPrincipalName."
           },
           "new_password": {
             "type": "string",
-            "description": "New temporary password. If omitted, a secure random password will be generated."
+            "description": "Optional explicit password. If omitted, a secure one is generated."
           },
           "force_change_at_next_sign_in": {
             "type": "boolean",
-            "description": "Force the user to change their password at next sign-in.",
-            "default": true
+            "description": "Require password change at next sign-in (default true)."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
-        "required": ["user_id"]
+        "required": [
+          "user_id"
+        ]
       }
     },
     {
       "name": "enforce_mfa",
-      "description": "Enforce MFA for a specific user by requiring authentication strength via per-user MFA settings or recommending Conditional Access. REQUIRES explicit user confirmation.",
+      "description": "Enforce or relax MFA for a user via group-based Conditional Access (Microsoft-recommended). Adds/removes the user from the MFA-required security group that a Conditional Access policy targets. Requires confirmation before execution.",
       "input_schema": {
         "type": "object",
         "properties": {
           "user_id": {
             "type": "string",
-            "description": "The user's Entra ID object ID or UPN."
+            "description": "User object id or userPrincipalName."
           },
           "method": {
             "type": "string",
-            "enum": ["per_user_mfa", "conditional_access_recommendation"],
-            "description": "per_user_mfa: directly enable MFA state for the user. conditional_access_recommendation: generate a CA policy recommendation (does not modify policies).",
-            "default": "per_user_mfa"
+            "enum": [
+              "conditional_access",
+              "conditional_access_recommendation",
+              "per_user_mfa"
+            ],
+            "description": "Enforcement method. 'conditional_access' (default) manages MFA-group membership. 'conditional_access_recommendation' returns setup guidance only. 'per_user_mfa' is legacy and not supported (returns an honest not-implemented result)."
           },
           "mfa_state": {
             "type": "string",
-            "enum": ["enabled", "enforced"],
-            "description": "Target MFA state. 'enabled' = user is prompted to register; 'enforced' = MFA is required immediately.",
-            "default": "enforced"
+            "enum": [
+              "enforced",
+              "enabled",
+              "disabled"
+            ],
+            "description": "Direction of the change. 'enforced'/'enabled' add the user to the MFA group; 'disabled' removes them. Default 'enforced'."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
-        "required": ["user_id"]
+        "required": [
+          "user_id"
+        ]
       }
     },
     {
       "name": "list_available_licenses",
-      "description": "List all available Microsoft 365 license SKUs in the tenant with consumed and total unit counts.",
+      "description": "List the tenant's license SKUs with total/consumed/available counts.",
       "input_schema": {
         "type": "object",
         "properties": {
           "include_disabled": {
             "type": "boolean",
-            "description": "Include SKUs with zero available units.",
-            "default": false
+            "description": "Include SKUs with no available units (default false)."
           }
         },
         "required": []
@@ -220,226 +245,203 @@
     },
     {
       "name": "assign_license",
-      "description": "Assign a license to a user. Requires usage_location to be set on the user. REQUIRES explicit user confirmation.",
+      "description": "Assign a license SKU to a user. Requires confirmation before execution.",
       "input_schema": {
         "type": "object",
         "properties": {
           "user_id": {
             "type": "string",
-            "description": "The user's Entra ID object ID or UPN."
+            "description": "User object id or userPrincipalName."
           },
           "sku_id": {
             "type": "string",
-            "description": "The SKU ID of the license to assign."
+            "description": "License SKU id to assign."
           },
           "disabled_plans": {
             "type": "array",
-            "items": { "type": "string" },
-            "description": "Optional list of service plan IDs to disable within the license.",
-            "default": []
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional list of service plan ids to disable within the SKU."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
-        "required": ["user_id", "sku_id"]
+        "required": [
+          "user_id",
+          "sku_id"
+        ]
       }
     },
     {
       "name": "remove_license",
-      "description": "Remove a license from a user. REQUIRES explicit user confirmation. Warns about mailbox/data impact.",
+      "description": "Remove a license SKU from a user. Requires confirmation before execution.",
       "input_schema": {
         "type": "object",
         "properties": {
           "user_id": {
             "type": "string",
-            "description": "The user's Entra ID object ID or UPN."
+            "description": "User object id or userPrincipalName."
           },
           "sku_id": {
             "type": "string",
-            "description": "The SKU ID of the license to remove."
+            "description": "License SKU id to remove."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
-        "required": ["user_id", "sku_id"]
+        "required": [
+          "user_id",
+          "sku_id"
+        ]
       }
     },
     {
       "name": "manage_group_membership",
-      "description": "Add or remove a user from an Entra ID group. REQUIRES explicit user confirmation for security groups and role-assignable groups.",
+      "description": "Add or remove a user from a group. Requires confirmation before execution.",
       "input_schema": {
         "type": "object",
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["add", "remove"],
-            "description": "Whether to add or remove the user from the group."
+            "enum": [
+              "add",
+              "remove"
+            ],
+            "description": "Membership action."
           },
           "user_id": {
             "type": "string",
-            "description": "The user's Entra ID object ID or UPN."
+            "description": "User object id or userPrincipalName."
           },
           "group_id": {
             "type": "string",
-            "description": "The group's Entra ID object ID."
+            "description": "Target group object id."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
-        "required": ["action", "user_id", "group_id"]
+        "required": [
+          "action",
+          "user_id",
+          "group_id"
+        ]
       }
     },
     {
       "name": "manage_shared_mailbox",
-      "description": "Create or manage a shared mailbox in Exchange Online. REQUIRES explicit user confirmation.",
+      "description": "Manage a shared mailbox. Requires confirmation before execution.",
       "input_schema": {
         "type": "object",
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["create", "add_permission", "remove_permission", "get_details"],
-            "description": "The operation to perform."
+            "description": "Action to perform (e.g., create, add_member, remove_member, list_members)."
           },
           "mailbox_address": {
             "type": "string",
-            "description": "Email address of the shared mailbox."
+            "description": "Shared mailbox email address."
           },
           "display_name": {
             "type": "string",
-            "description": "Display name for a new shared mailbox (required for 'create')."
+            "description": "Display name (for creation)."
           },
-          "user_id": {
-            "type": "string",
-            "description": "User to grant/revoke permissions (required for add/remove_permission)."
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Member UPNs (for membership actions)."
           },
-          "permission_type": {
-            "type": "string",
-            "enum": ["FullAccess", "SendAs", "SendOnBehalf"],
-            "description": "Permission type to grant or revoke.",
-            "default": "FullAccess"
+          "confirm": {
+            "type": "boolean",
+            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
-        "required": ["action", "mailbox_address"]
+        "required": [
+          "action",
+          "mailbox_address"
+        ]
       }
     },
     {
       "name": "manage_distribution_group",
-      "description": "Create a distribution group or manage its membership. REQUIRES explicit user confirmation for write operations.",
+      "description": "Manage a distribution group. Requires confirmation before execution.",
       "input_schema": {
         "type": "object",
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["create", "add_member", "remove_member", "list_members", "delete"],
-            "description": "The operation to perform."
+            "description": "Action to perform (e.g., create, add_member, remove_member, list_members)."
           },
           "group_email": {
             "type": "string",
-            "description": "Email address of the distribution group."
+            "description": "Distribution group email address."
           },
           "display_name": {
             "type": "string",
-            "description": "Display name (required for 'create')."
+            "description": "Display name (for creation)."
           },
-          "member_id": {
-            "type": "string",
-            "description": "User ID or email to add/remove (required for member operations)."
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Member UPNs (for membership actions)."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
-        "required": ["action", "group_email"]
+        "required": [
+          "action",
+          "group_email"
+        ]
       }
     },
     {
       "name": "check_mailbox_status",
-      "description": "Check Exchange Online mailbox provisioning status, storage usage, auto-forwarding rules, and delegation permissions for a user.",
+      "description": "Check a user's mailbox provisioning, storage, forwarding, and delegation status.",
       "input_schema": {
         "type": "object",
         "properties": {
           "user_id": {
             "type": "string",
-            "description": "The user's Entra ID object ID or UPN."
-          },
-          "include_forwarding_rules": {
-            "type": "boolean",
-            "description": "Check for auto-forwarding/redirect rules.",
-            "default": true
-          },
-          "include_permissions": {
-            "type": "boolean",
-            "description": "List all delegated permissions on the mailbox.",
-            "default": true
+            "description": "User object id or userPrincipalName."
           }
         },
-        "required": ["user_id"]
+        "required": [
+          "user_id"
+        ]
       }
     },
     {
       "name": "generate_weekly_insights_report",
-      "description": "Generate the M365 Guardian Weekly Security & Best-Practice Insights Report covering all 10 checks. Can be triggered manually or by the scheduled Azure Function.",
+      "description": "Run the security checks and compile the weekly insights report.",
       "input_schema": {
         "type": "object",
         "properties": {
           "checks": {
             "type": "array",
             "items": {
-              "type": "string",
-              "enum": [
-                "suspicious_sign_ins",
-                "mfa_compliance",
-                "dormant_accounts",
-                "license_optimization",
-                "privileged_access",
-                "guest_users",
-                "legacy_auth",
-                "exchange_best_practices",
-                "conditional_access_gaps",
-                "password_hygiene"
-              ]
+              "type": "string"
             },
-            "description": "Specific checks to run. Defaults to all 10.",
-            "default": [
-              "suspicious_sign_ins",
-              "mfa_compliance",
-              "dormant_accounts",
-              "license_optimization",
-              "privileged_access",
-              "guest_users",
-              "legacy_auth",
-              "exchange_best_practices",
-              "conditional_access_gaps",
-              "password_hygiene"
-            ]
+            "description": "Optional subset of check keys to run (defaults to all)."
           },
           "lookback_days": {
             "type": "integer",
-            "description": "Number of days to look back for sign-in and activity data.",
-            "default": 7,
-            "minimum": 1,
-            "maximum": 90
+            "description": "Lookback window for sign-in based checks (default 7)."
           },
           "dormant_threshold_days": {
             "type": "integer",
-            "description": "Number of inactive days before an account is considered dormant.",
-            "default": 90
-          },
-          "delivery_targets": {
-            "type": "object",
-            "properties": {
-              "teams_channel_id": {
-                "type": "string",
-                "description": "Teams channel ID for report delivery."
-              },
-              "teams_team_id": {
-                "type": "string",
-                "description": "Teams team ID containing the channel."
-              },
-              "email_recipients": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "Email addresses to receive the report."
-              }
-            },
-            "description": "Where to deliver the report. If omitted, returns the report in chat only."
-          },
-          "format": {
-            "type": "string",
-            "enum": ["summary", "detailed", "executive"],
-            "description": "Report detail level.",
-            "default": "summary"
+            "description": "Inactivity threshold for the dormant-accounts check (default 90)."
           }
         },
         "required": []
@@ -447,82 +449,64 @@
     },
     {
       "name": "send_report_to_teams",
-      "description": "Send a formatted Adaptive Card report to a Microsoft Teams channel.",
+      "description": "Generate the security report and deliver it to the current Teams conversation. Requires confirmation.",
       "input_schema": {
         "type": "object",
         "properties": {
-          "team_id": {
-            "type": "string",
-            "description": "The Teams team ID."
-          },
-          "channel_id": {
-            "type": "string",
-            "description": "The Teams channel ID."
-          },
-          "card_payload": {
-            "type": "object",
-            "description": "Adaptive Card JSON payload to send.",
-            "additionalProperties": true
+          "confirm": {
+            "type": "boolean",
+            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
-        "required": ["team_id", "channel_id", "card_payload"]
+        "required": []
       }
     },
     {
       "name": "send_report_via_email",
-      "description": "Send the weekly insights report as an HTML email via Microsoft Graph sendMail.",
+      "description": "Email the security report to recipients. Requires confirmation before execution.",
       "input_schema": {
         "type": "object",
         "properties": {
           "recipients": {
             "type": "array",
-            "items": { "type": "string" },
-            "description": "Email addresses of recipients."
+            "items": {
+              "type": "string"
+            },
+            "description": "Recipient email addresses."
           },
-          "subject": {
-            "type": "string",
-            "description": "Email subject line."
-          },
-          "html_body": {
-            "type": "string",
-            "description": "Full HTML content of the report email."
-          },
-          "sender_upn": {
-            "type": "string",
-            "description": "UPN of the sending mailbox (typically a shared/service mailbox)."
+          "confirm": {
+            "type": "boolean",
+            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
-        "required": ["recipients", "subject", "html_body"]
+        "required": []
       }
     },
     {
       "name": "get_audit_log",
-      "description": "Retrieve M365 Guardian action audit logs. Read-only, available to admins.",
+      "description": "Query the M365 Guardian action audit log with optional filters.",
       "input_schema": {
         "type": "object",
         "properties": {
           "start_date": {
             "type": "string",
-            "format": "date-time",
-            "description": "Start of the time range (ISO 8601)."
+            "description": "ISO-8601 start of the time range."
           },
           "end_date": {
             "type": "string",
-            "format": "date-time",
-            "description": "End of the time range (ISO 8601)."
+            "description": "ISO-8601 end of the time range."
           },
           "action_type": {
             "type": "string",
-            "description": "Optional filter by action type (e.g., 'create_user', 'reset_password')."
+            "description": "Filter by tool name."
           },
           "performed_by": {
             "type": "string",
-            "description": "Optional filter by the technician who performed the action."
+            "description": "Filter by technician email."
           },
           "top": {
             "type": "integer",
-            "default": 25,
-            "description": "Max entries to return."
+            "description": "Maximum number of entries to return (default 25)."
           }
         },
         "required": []
@@ -530,28 +514,41 @@
     },
     {
       "name": "bulk_operation",
-      "description": "Perform a bulk operation on multiple users. Supports bulk password reset, license assignment, enable/disable, and MFA enforcement. REQUIRES explicit user confirmation with full summary of all affected users.",
+      "description": "Run an operation across many users. Requires confirmation before execution.",
       "input_schema": {
         "type": "object",
         "properties": {
           "operation": {
             "type": "string",
-            "enum": ["reset_password", "assign_license", "remove_license", "enable_account", "disable_account", "enforce_mfa"],
-            "description": "The bulk operation to perform."
+            "enum": [
+              "reset_password",
+              "assign_license",
+              "remove_license",
+              "enable_account",
+              "disable_account"
+            ],
+            "description": "Operation to apply to each user."
           },
           "user_ids": {
             "type": "array",
-            "items": { "type": "string" },
-            "description": "List of user object IDs or UPNs (max 50).",
-            "maxItems": 50
+            "items": {
+              "type": "string"
+            },
+            "description": "User ids or UPNs to operate on."
           },
           "parameters": {
             "type": "object",
-            "description": "Operation-specific parameters (e.g., sku_id for license operations, mfa_state for MFA).",
-            "additionalProperties": true
+            "description": "Operation parameters, e.g., {\"sku_id\": \"...\"} for license operations."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Set to true ONLY after the technician has explicitly approved THIS specific action in their latest message. Omit or set false to request confirmation first."
           }
         },
-        "required": ["operation", "user_ids"]
+        "required": [
+          "operation",
+          "user_ids"
+        ]
       }
     }
   ]

@@ -5,11 +5,11 @@ Pluggable LLM layer using LiteLLM for provider-agnostic tool calling.
 
 import json
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
-from typing import Any
 
 import litellm
+
 from backend.config import config
 
 logger = logging.getLogger(__name__)
@@ -43,14 +43,16 @@ def _load_tool_schemas() -> list[dict]:
     raw = json.loads(_TOOL_SCHEMAS_PATH.read_text())
     tools = []
     for tool in raw["tools"]:
-        tools.append({
-            "type": "function",
-            "function": {
-                "name": tool["name"],
-                "description": tool["description"],
-                "parameters": tool["input_schema"],
-            },
-        })
+        tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool["description"],
+                    "parameters": tool["input_schema"],
+                },
+            }
+        )
     return tools
 
 
@@ -65,6 +67,7 @@ class LLMService:
     def _configure_litellm(self):
         """Set LiteLLM environment based on config."""
         import os
+
         litellm.set_verbose = False
         if config.llm.provider == "anthropic":
             litellm.anthropic_key = config.llm.api_key
@@ -98,7 +101,7 @@ class LLMService:
             ctx = (
                 f"\n\n[Session Context]\n"
                 f"Technician: {session_context.get('technician_name', 'Unknown')}\n"
-                f"Current Date: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}\n"
+                f"Current Date: {datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}\n"
                 f"Technician Email: {session_context.get('technician_email', 'Unknown')}\n"
                 f"Tenant: {session_context.get('tenant_id', config.azure_ad.tenant_id)}\n"
                 f"Session ID: {session_context.get('session_id', 'N/A')}\n"
@@ -132,11 +135,13 @@ class LLMService:
             # Extract tool calls if any
             if choice.message.tool_calls:
                 for tc in choice.message.tool_calls:
-                    result["tool_calls"].append({
-                        "id": tc.id,
-                        "name": tc.function.name,
-                        "arguments": json.loads(tc.function.arguments),
-                    })
+                    result["tool_calls"].append(
+                        {
+                            "id": tc.id,
+                            "name": tc.function.name,
+                            "arguments": json.loads(tc.function.arguments),
+                        }
+                    )
 
             return result
 
@@ -168,7 +173,7 @@ class LLMService:
         messages = list(conversation_history)
         messages.append({"role": "user", "content": user_message})
 
-        for iteration in range(max_iterations):
+        for _ in range(max_iterations):
             response = await self.chat(messages, session_context)
 
             # If no tool calls, we have a final text response
@@ -199,20 +204,27 @@ class LLMService:
                 for tc in response["tool_calls"]:
                     try:
                         result = await tool_executor(tc["name"], tc["arguments"])
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": json.dumps(result, default=str),
-                        })
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc["id"],
+                                "content": json.dumps(result, default=str),
+                            }
+                        )
                     except Exception as e:
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": json.dumps({
-                                "error": str(e),
-                                "error_type": type(e).__name__,
-                            }, default=str),
-                        })
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc["id"],
+                                "content": json.dumps(
+                                    {
+                                        "error": str(e),
+                                        "error_type": type(e).__name__,
+                                    },
+                                    default=str,
+                                ),
+                            }
+                        )
 
         # Max iterations reached
         final_msg = (

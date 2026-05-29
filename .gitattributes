@@ -1,0 +1,9 @@
+# Normalize line endings: treat all text as LF in the repo to avoid CRLF churn.
+* text=auto eol=lf
+
+# Explicitly binary (never normalize / diff as text)
+*.png binary
+*.jpg binary
+*.zip binary
+*.pfx binary
+*.cer binary

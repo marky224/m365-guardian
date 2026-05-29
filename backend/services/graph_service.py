@@ -6,20 +6,20 @@ Handles all interactions with Entra ID and Exchange Online via Graph API.
 import logging
 import secrets
 import string
-from datetime import datetime, timedelta, timezone
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from azure.identity import ClientSecretCredential
 from kiota_abstractions.base_request_configuration import RequestConfiguration
 from msgraph import GraphServiceClient
-from msgraph.generated.models.user import User
-from msgraph.generated.models.password_profile import PasswordProfile
 from msgraph.generated.models.assigned_license import AssignedLicense
-from msgraph.generated.users.users_request_builder import UsersRequestBuilder
-from msgraph.generated.users.item.user_item_request_builder import UserItemRequestBuilder
+from msgraph.generated.models.password_profile import PasswordProfile
+from msgraph.generated.models.user import User
 from msgraph.generated.users.item.assign_license.assign_license_post_request_body import (
     AssignLicensePostRequestBody,
 )
+from msgraph.generated.users.item.user_item_request_builder import UserItemRequestBuilder
+from msgraph.generated.users.users_request_builder import UsersRequestBuilder
 
 from backend.config import config
 
@@ -51,8 +51,13 @@ class GraphService:
     ) -> list[dict]:
         """Search users by displayName, mail, or UPN."""
         select = select or [
-            "id", "displayName", "userPrincipalName", "mail",
-            "accountEnabled", "department", "jobTitle",
+            "id",
+            "displayName",
+            "userPrincipalName",
+            "mail",
+            "accountEnabled",
+            "department",
+            "jobTitle",
         ]
 
         try:
@@ -81,15 +86,17 @@ class GraphService:
             users = []
             if result and result.value:
                 for u in result.value:
-                    users.append({
-                        "id": u.id,
-                        "displayName": u.display_name,
-                        "userPrincipalName": u.user_principal_name,
-                        "mail": u.mail,
-                        "accountEnabled": u.account_enabled,
-                        "department": u.department,
-                        "jobTitle": u.job_title,
-                    })
+                    users.append(
+                        {
+                            "id": u.id,
+                            "displayName": u.display_name,
+                            "userPrincipalName": u.user_principal_name,
+                            "mail": u.mail,
+                            "accountEnabled": u.account_enabled,
+                            "department": u.department,
+                            "jobTitle": u.job_title,
+                        }
+                    )
             return users
         except Exception as e:
             logger.error(f"search_users failed: {e}")
@@ -107,15 +114,22 @@ class GraphService:
         """Get comprehensive user details."""
         try:
             params = UserItemRequestBuilder.UserItemRequestBuilderGetQueryParameters(
-                select=["id", "displayName", "userPrincipalName", "mail",
-                        "accountEnabled", "department", "jobTitle",
-                        "usageLocation", "assignedLicenses", "createdDateTime",
-                        "signInActivity"],
+                select=[
+                    "id",
+                    "displayName",
+                    "userPrincipalName",
+                    "mail",
+                    "accountEnabled",
+                    "department",
+                    "jobTitle",
+                    "usageLocation",
+                    "assignedLicenses",
+                    "createdDateTime",
+                    "signInActivity",
+                ],
             )
             config = RequestConfiguration(query_parameters=params)
-            user = await self._client.users.by_user_id(user_id).get(
-                request_configuration=config
-            )
+            user = await self._client.users.by_user_id(user_id).get(request_configuration=config)
 
             result = {
                 "id": user.id,
@@ -127,26 +141,19 @@ class GraphService:
                 "jobTitle": user.job_title,
                 "usageLocation": user.usage_location,
                 "createdDateTime": str(user.created_date_time) if user.created_date_time else None,
-                "assignedLicenses": [
-                    {"skuId": lic.sku_id} for lic in (user.assigned_licenses or [])
-                ],
+                "assignedLicenses": [{"skuId": lic.sku_id} for lic in (user.assigned_licenses or [])],
             }
 
             # Sign-in activity
             if include_sign_in and user.sign_in_activity:
                 result["lastSignIn"] = str(user.sign_in_activity.last_sign_in_date_time)
-                result["lastNonInteractiveSignIn"] = str(
-                    user.sign_in_activity.last_non_interactive_sign_in_date_time
-                )
+                result["lastNonInteractiveSignIn"] = str(user.sign_in_activity.last_non_interactive_sign_in_date_time)
 
             # MFA methods
             if include_mfa:
                 try:
                     methods = await self._client.users.by_user_id(user_id).authentication.methods.get()
-                    result["authMethods"] = [
-                        {"type": m.odata_type, "id": m.id}
-                        for m in (methods.value or [])
-                    ]
+                    result["authMethods"] = [{"type": m.odata_type, "id": m.id} for m in (methods.value or [])]
                 except Exception:
                     result["authMethods"] = []
 
@@ -155,8 +162,7 @@ class GraphService:
                 try:
                     groups = await self._client.users.by_user_id(user_id).member_of.get()
                     result["groups"] = [
-                        {"id": g.id, "displayName": getattr(g, "display_name", None)}
-                        for g in (groups.value or [])
+                        {"id": g.id, "displayName": getattr(g, "display_name", None)} for g in (groups.value or [])
                     ]
                 except Exception:
                     result["groups"] = []
@@ -276,9 +282,11 @@ class GraphService:
         """Soft-delete a user."""
         try:
             await self._client.users.by_user_id(user_id).delete()
-            return {"user_id": user_id, "deleted": True, "recoverable_until": str(
-                datetime.now(timezone.utc) + timedelta(days=30)
-            )}
+            return {
+                "user_id": user_id,
+                "deleted": True,
+                "recoverable_until": str(datetime.now(UTC) + timedelta(days=30)),
+            }
         except Exception as e:
             logger.error(f"delete_user failed for {user_id}: {e}")
             raise
@@ -290,33 +298,33 @@ class GraphService:
         try:
             result = await self._client.subscribed_skus.get()
             licenses = []
-            for sku in (result.value or []):
+            for sku in result.value or []:
                 total = sku.prepaid_units.enabled if sku.prepaid_units else 0
                 consumed = sku.consumed_units or 0
                 if not include_disabled and (total - consumed) <= 0:
                     continue
-                licenses.append({
-                    "skuId": sku.sku_id,
-                    "skuPartNumber": sku.sku_part_number,
-                    "totalUnits": total,
-                    "consumedUnits": consumed,
-                    "availableUnits": total - consumed,
-                })
+                licenses.append(
+                    {
+                        "skuId": sku.sku_id,
+                        "skuPartNumber": sku.sku_part_number,
+                        "totalUnits": total,
+                        "consumedUnits": consumed,
+                        "availableUnits": total - consumed,
+                    }
+                )
             return licenses
         except Exception as e:
             logger.error(f"list_licenses failed: {e}")
             raise
 
-    async def assign_license(
-        self, user_id: str, sku_id: str, disabled_plans: list[str] | None = None
-    ) -> dict:
+    async def assign_license(self, user_id: str, sku_id: str, disabled_plans: list[str] | None = None) -> dict:
         """Assign a license to a user."""
         try:
             body = AssignLicensePostRequestBody(
                 add_licenses=[
                     AssignedLicense(
-                        sku_id=sku_id,
-                        disabled_plans=disabled_plans or [],
+                        sku_id=UUID(sku_id),
+                        disabled_plans=[UUID(p) for p in (disabled_plans or [])],
                     )
                 ],
                 remove_licenses=[],
@@ -332,7 +340,7 @@ class GraphService:
         try:
             body = AssignLicensePostRequestBody(
                 add_licenses=[],
-                remove_licenses=[sku_id],
+                remove_licenses=[UUID(sku_id)],
             )
             await self._client.users.by_user_id(user_id).assign_license.post(body)
             return {"user_id": user_id, "sku_id": sku_id, "removed": True}
@@ -340,21 +348,96 @@ class GraphService:
             logger.error(f"remove_license failed for {user_id}: {e}")
             raise
 
+    # ── GROUP MEMBERSHIP ─────────────────────────────────────────────
+
+    async def add_group_member(self, group_id: str, user_id: str) -> dict:
+        """Add a user to a group via the members/$ref endpoint."""
+        try:
+            from msgraph.generated.models.reference_create import ReferenceCreate
+
+            ref = ReferenceCreate(odata_id=f"https://graph.microsoft.com/v1.0/directoryObjects/{user_id}")
+            await self._client.groups.by_group_id(group_id).members.ref.post(ref)
+            return {"group_id": group_id, "user_id": user_id, "action": "add", "success": True}
+        except Exception as e:
+            logger.error(f"add_group_member failed (group={group_id}, user={user_id}): {e}")
+            raise
+
+    async def remove_group_member(self, group_id: str, user_id: str) -> dict:
+        """Remove a user from a group via the members/{id}/$ref endpoint."""
+        try:
+            await self._client.groups.by_group_id(group_id).members.by_directory_object_id(user_id).ref.delete()
+            return {"group_id": group_id, "user_id": user_id, "action": "remove", "success": True}
+        except Exception as e:
+            logger.error(f"remove_group_member failed (group={group_id}, user={user_id}): {e}")
+            raise
+
+    # ── MAILBOX STATUS ───────────────────────────────────────────────
+
+    async def get_mailbox_status(self, user_id: str) -> dict:
+        """Report mailbox provisioning, forwarding, and storage usage for a user.
+
+        Uses Graph endpoints that are supported with application permissions:
+        mailbox settings (provisioning + automatic replies), message rules
+        (server-side forwarding rules), and mailbox usage (storage). Each piece
+        degrades gracefully so a single missing permission or unlicensed mailbox
+        doesn't fail the whole call.
+        """
+        status: dict = {
+            "user_id": user_id,
+            "mailbox_exists": False,
+            "forwarding_rules": [],
+            "storage_used_mb": None,
+            "storage_quota_mb": None,
+        }
+
+        # Mailbox settings — presence confirms a provisioned Exchange Online mailbox.
+        try:
+            settings = await self._client.users.by_user_id(user_id).mailbox_settings.get()
+            status["mailbox_exists"] = settings is not None
+            if settings and settings.automatic_replies_setting:
+                status["automatic_replies_status"] = str(settings.automatic_replies_setting.status)
+        except Exception as e:
+            # A 404/MailboxNotEnabledForRESTAPI means no Exchange Online mailbox.
+            logger.info(f"get_mailbox_status: no mailbox settings for {user_id}: {e}")
+
+        # Server-side forwarding (inbox message rules that forward/redirect).
+        try:
+            inbox = self._client.users.by_user_id(user_id).mail_folders.by_mail_folder_id("inbox")
+            rules = await inbox.message_rules.get()
+            for r in (rules.value or []) if rules else []:
+                actions = r.actions
+                if not actions:
+                    continue
+                if actions.forward_to or actions.redirect_to or actions.forward_as_attachment_to:
+                    targets = [
+                        recip.email_address.address
+                        for recip in (actions.forward_to or []) + (actions.redirect_to or [])
+                        if recip.email_address
+                    ]
+                    status["forwarding_rules"].append(
+                        {"rule": r.display_name, "enabled": r.is_enabled, "forwards_to": targets}
+                    )
+        except Exception as e:
+            logger.info(f"get_mailbox_status: could not read message rules for {user_id}: {e}")
+
+        return status
+
     # ── INSIGHTS REPORT DATA GATHERING ───────────────────────────────
 
     async def get_risky_sign_ins(self, lookback_days: int = 7) -> list[dict]:
         """Fetch risky sign-in events."""
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(days=lookback_days)).isoformat()
         try:
-            from msgraph.generated.identity_protection.risky_users.risky_users_request_builder import RiskyUsersRequestBuilder
+            from msgraph.generated.identity_protection.risky_users.risky_users_request_builder import (
+                RiskyUsersRequestBuilder,
+            )
+
             params = RiskyUsersRequestBuilder.RiskyUsersRequestBuilderGetQueryParameters(
                 filter=f"riskLastUpdatedDateTime ge {cutoff}",
                 top=50,
             )
             config = RequestConfiguration(query_parameters=params)
-            result = await self._client.identity_protection.risky_users.get(
-                request_configuration=config
-            )
+            result = await self._client.identity_protection.risky_users.get(request_configuration=config)
             return [
                 {
                     "id": u.id,
@@ -380,21 +463,20 @@ class GraphService:
             users = await self._client.users.get(request_configuration=config)
 
             no_mfa = []
-            for user in (users.value or []):
+            for user in users.value or []:
                 try:
                     methods = await self._client.users.by_user_id(user.id).authentication.methods.get()
                     # Only password method = no MFA
                     method_types = [m.odata_type for m in (methods.value or [])]
-                    has_strong = any(
-                        t for t in method_types
-                        if "password" not in t.lower()
-                    )
+                    has_strong = any(t for t in method_types if "password" not in t.lower())
                     if not has_strong:
-                        no_mfa.append({
-                            "id": user.id,
-                            "displayName": user.display_name,
-                            "userPrincipalName": user.user_principal_name,
-                        })
+                        no_mfa.append(
+                            {
+                                "id": user.id,
+                                "displayName": user.display_name,
+                                "userPrincipalName": user.user_principal_name,
+                            }
+                        )
                 except Exception:
                     continue
 
@@ -405,7 +487,7 @@ class GraphService:
 
     async def get_dormant_accounts(self, threshold_days: int = 90) -> list[dict]:
         """Find accounts with no sign-in activity for threshold_days."""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=threshold_days)
+        cutoff = datetime.now(UTC) - timedelta(days=threshold_days)
         try:
             params = UsersRequestBuilder.UsersRequestBuilderGetQueryParameters(
                 select=["id", "displayName", "userPrincipalName", "accountEnabled", "signInActivity"],
@@ -415,24 +497,28 @@ class GraphService:
             result = await self._client.users.get(request_configuration=config)
 
             dormant = []
-            for u in (result.value or []):
+            for u in result.value or []:
                 if not u.sign_in_activity or not u.sign_in_activity.last_sign_in_date_time:
-                    dormant.append({
-                        "id": u.id,
-                        "displayName": u.display_name,
-                        "userPrincipalName": u.user_principal_name,
-                        "lastSignIn": None,
-                        "daysSinceSignIn": "Never",
-                    })
+                    dormant.append(
+                        {
+                            "id": u.id,
+                            "displayName": u.display_name,
+                            "userPrincipalName": u.user_principal_name,
+                            "lastSignIn": None,
+                            "daysSinceSignIn": "Never",
+                        }
+                    )
                 elif u.sign_in_activity.last_sign_in_date_time < cutoff:
-                    days = (datetime.now(timezone.utc) - u.sign_in_activity.last_sign_in_date_time).days
-                    dormant.append({
-                        "id": u.id,
-                        "displayName": u.display_name,
-                        "userPrincipalName": u.user_principal_name,
-                        "lastSignIn": str(u.sign_in_activity.last_sign_in_date_time),
-                        "daysSinceSignIn": days,
-                    })
+                    days = (datetime.now(UTC) - u.sign_in_activity.last_sign_in_date_time).days
+                    dormant.append(
+                        {
+                            "id": u.id,
+                            "displayName": u.display_name,
+                            "userPrincipalName": u.user_principal_name,
+                            "lastSignIn": str(u.sign_in_activity.last_sign_in_date_time),
+                            "daysSinceSignIn": days,
+                        }
+                    )
             return dormant
         except Exception as e:
             logger.error(f"get_dormant_accounts failed: {e}")
@@ -441,7 +527,10 @@ class GraphService:
     async def get_privileged_role_holders(self) -> list[dict]:
         """Get users with permanent privileged directory role assignments."""
         try:
-            from msgraph.generated.role_management.directory.role_assignments.role_assignments_request_builder import RoleAssignmentsRequestBuilder
+            from msgraph.generated.role_management.directory.role_assignments.role_assignments_request_builder import (
+                RoleAssignmentsRequestBuilder,
+            )
+
             params = RoleAssignmentsRequestBuilder.RoleAssignmentsRequestBuilderGetQueryParameters(
                 expand=["principal", "roleDefinition"],
             )
@@ -450,15 +539,17 @@ class GraphService:
                 request_configuration=config
             )
             holders = []
-            for a in (assignments.value or []):
+            for a in assignments.value or []:
                 role_name = a.role_definition.display_name if a.role_definition else "Unknown"
                 principal_name = getattr(a.principal, "display_name", "Unknown") if a.principal else "Unknown"
-                holders.append({
-                    "principalId": a.principal_id,
-                    "principalDisplayName": principal_name,
-                    "roleId": a.role_definition_id,
-                    "roleName": role_name,
-                })
+                holders.append(
+                    {
+                        "principalId": a.principal_id,
+                        "principalDisplayName": principal_name,
+                        "roleId": a.role_definition_id,
+                        "roleName": role_name,
+                    }
+                )
             return holders
         except Exception as e:
             logger.error(f"get_privileged_role_holders failed: {e}")
@@ -494,9 +585,9 @@ class GraphService:
     async def send_channel_message(self, team_id: str, channel_id: str, content: str) -> dict:
         """Post a message to a Teams channel."""
         try:
+            from msgraph.generated.models.body_type import BodyType
             from msgraph.generated.models.chat_message import ChatMessage
             from msgraph.generated.models.item_body import ItemBody
-            from msgraph.generated.models.body_type import BodyType
 
             message = ChatMessage(
                 body=ItemBody(
@@ -504,8 +595,9 @@ class GraphService:
                     content=content,
                 ),
             )
-            result = await self._client.teams.by_team_id(team_id).channels.by_channel_id(channel_id).messages.post(
-                message)
+            result = (
+                await self._client.teams.by_team_id(team_id).channels.by_channel_id(channel_id).messages.post(message)
+            )
             return {"message_id": result.id, "sent": True}
         except Exception as e:
             logger.error(f"send_channel_message failed: {e}")
@@ -514,12 +606,12 @@ class GraphService:
     async def send_mail(self, sender_upn: str, recipients: list[str], subject: str, html_body: str) -> dict:
         """Send an email via Microsoft Graph sendMail."""
         try:
-            from msgraph.generated.users.item.send_mail.send_mail_post_request_body import SendMailPostRequestBody
-            from msgraph.generated.models.message import Message
-            from msgraph.generated.models.item_body import ItemBody
             from msgraph.generated.models.body_type import BodyType
-            from msgraph.generated.models.recipient import Recipient
             from msgraph.generated.models.email_address import EmailAddress
+            from msgraph.generated.models.item_body import ItemBody
+            from msgraph.generated.models.message import Message
+            from msgraph.generated.models.recipient import Recipient
+            from msgraph.generated.users.item.send_mail.send_mail_post_request_body import SendMailPostRequestBody
 
             mail_body = SendMailPostRequestBody(
                 message=Message(
@@ -528,10 +620,7 @@ class GraphService:
                         content_type=BodyType.Html,
                         content=html_body,
                     ),
-                    to_recipients=[
-                        Recipient(email_address=EmailAddress(address=addr))
-                        for addr in recipients
-                    ],
+                    to_recipients=[Recipient(email_address=EmailAddress(address=addr)) for addr in recipients],
                 ),
                 save_to_sent_items=False,
             )
@@ -551,8 +640,7 @@ class GraphService:
         digit = secrets.choice(string.digits)
         special = secrets.choice("!@#$%^&*")
         remaining = "".join(
-            secrets.choice(string.ascii_letters + string.digits + "!@#$%^&*")
-            for _ in range(length - 4)
+            secrets.choice(string.ascii_letters + string.digits + "!@#$%^&*") for _ in range(length - 4)
         )
         password = list(lower + upper + digit + special + remaining)
         secrets.SystemRandom().shuffle(password)
