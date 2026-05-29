@@ -5,6 +5,8 @@ exact API used against Cosmos, plus the owner-isolation guarantee and the
 renderable-history projection used by the web UI.
 """
 
+from datetime import UTC, datetime
+
 from backend.services.session_service import SessionService
 
 
@@ -60,6 +62,43 @@ async def test_owner_isolation():
     # get_or_create for owner-b yields a fresh empty session (no cross-user leak).
     other = await svc.get_or_create("shared-id", owner_id="owner-b")
     assert other["history"] == []
+
+
+async def test_pending_confirmation_set_get_clear():
+    svc = SessionService()
+    await svc.get_or_create("s1", owner_id="owner-a")
+    pending = {"token": "abc123", "fingerprint": "fp1", "expires_at": "2999-01-01T00:00:00+00:00"}
+
+    await svc.set_pending("s1", owner_id="owner-a", pending=pending)
+    got = await svc.get_pending("s1", owner_id="owner-a")
+    assert got is not None and got["token"] == "abc123"
+
+    await svc.clear_pending("s1", owner_id="owner-a")
+    assert await svc.get_pending("s1", owner_id="owner-a") is None
+
+
+async def test_pending_is_owner_scoped():
+    svc = SessionService()
+    await svc.set_pending(
+        "s1",
+        owner_id="owner-a",
+        pending={"token": "abc123", "expires_at": "2999-01-01T00:00:00+00:00"},
+    )
+    # A different owner (different partition) sees no pending for the same key.
+    assert await svc.get_pending("s1", owner_id="owner-b") is None
+
+
+def test_is_pending_valid():
+    now = datetime(2026, 1, 1, tzinfo=UTC)
+    future = "2026-01-01T00:10:00+00:00"
+    past = "2025-12-31T23:50:00+00:00"
+
+    assert SessionService.is_pending_valid({"token": "t", "expires_at": future}, "t", now) is True
+    # Wrong token, expired, missing fields, or no pending → invalid.
+    assert SessionService.is_pending_valid({"token": "t", "expires_at": future}, "WRONG", now) is False
+    assert SessionService.is_pending_valid({"token": "t", "expires_at": past}, "t", now) is False
+    assert SessionService.is_pending_valid({"token": "t"}, "t", now) is False
+    assert SessionService.is_pending_valid(None, "t", now) is False
 
 
 def test_renderable_messages_projection():

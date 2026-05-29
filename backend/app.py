@@ -20,6 +20,7 @@ from botbuilder.schema import Activity
 
 from backend.bot import GuardianBot
 from backend.config import config
+from backend.confirmations import resolve_pending_confirmation
 from backend.observability import setup_observability
 from backend.services.audit_service import AuditService
 from backend.services.graph_service import GraphService
@@ -265,12 +266,17 @@ async def web_api_chat(request: Request) -> Response:
             user_email=technician_email,
         )
 
-        return web.json_response(
-            {
-                "response": response_text,
-                "session_id": session_id,
+        payload = {"response": response_text, "session_id": session_id}
+        # If a write was proposed, persist the server-minted approval and tell the client to
+        # render Approve/Cancel. The token authorizes only via /api/confirm (Layer 2, D-015).
+        if executor.pending_confirmation:
+            await sessions.set_pending(session_id, owner_id=owner_id, pending=executor.pending_confirmation)
+            payload["confirmation"] = {
+                "token": executor.pending_confirmation["token"],
+                "summary": executor.pending_confirmation["summary"],
+                "tool": executor.pending_confirmation["tool"],
             }
-        )
+        return web.json_response(payload)
     except Exception as e:
         error_id = uuid.uuid4().hex[:8]
         logger.error(f"Web chat error [error_id={error_id}]: {e}")
@@ -301,6 +307,49 @@ async def web_api_history(request: Request) -> Response:
     sess = await sessions.get(session_id, owner_id)
     messages = SessionService.renderable_messages(sess["history"]) if sess else []
     return web.json_response({"session_id": session_id, "messages": messages})
+
+
+async def web_api_confirm(request: Request) -> Response:
+    """Approve or cancel a pending write (Layer 2, D-015).
+
+    The approval token is validated in code against the session's server-stored pending
+    record — never the model. On approval the *stored* action is executed via a fingerprint
+    grant, so the executed action is exactly the one that was reviewed.
+    """
+    session = await get_session(request)
+    user = session.get("user", {})
+    owner_id = user.get("oid") or "web-user"
+    technician_email = user.get("email", "web-user@unknown")
+
+    body = await request.json()
+    session_id = body.get("session_id", "")
+    token = body.get("token", "")
+    decision = body.get("decision", "approve")
+
+    sessions = request.app[SESSION_KEY]
+    graph = request.app[GRAPH_KEY]
+    audit = request.app[AUDIT_KEY]
+
+    def build_executor(fingerprint: str) -> ToolExecutor:
+        return ToolExecutor(
+            graph=graph,
+            audit=audit,
+            session_id=session_id,
+            technician_id=owner_id,
+            technician_email=technician_email,
+            mfa_required_group_id=config.security.mfa_required_group_id,
+            confirmed_fingerprint=fingerprint,
+        )
+
+    message = await resolve_pending_confirmation(
+        sessions=sessions,
+        key=session_id,
+        owner_id=owner_id,
+        token=token,
+        decision=decision,
+        build_executor=build_executor,
+    )
+    return web.json_response({"response": message, "session_id": session_id})
 
 
 async def trigger_report(request: Request) -> Response:
@@ -356,6 +405,7 @@ def create_app() -> web.Application:
     app.router.add_get("/", web_chat)  # Web chat UI
     app.router.add_post("/api/chat", web_api_chat)  # Web chat API
     app.router.add_get("/api/history", web_api_history)  # Load a session's transcript
+    app.router.add_post("/api/confirm", web_api_confirm)  # Approve/cancel a pending write
     app.router.add_post("/api/report", trigger_report)  # Manual report trigger
 
     # Static files for web app

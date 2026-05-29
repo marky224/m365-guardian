@@ -256,6 +256,7 @@
                     addMessage(`⚠️ Error: ${data.error}`, 'bot');
                 } else {
                     addMessage(data.response, 'bot');
+                    if (data.confirmation) renderConfirmation(data.confirmation);
                 }
             } catch (err) {
                 hideTyping();
@@ -269,6 +270,51 @@
         function sendQuick(text) {
             userInput.value = text;
             send();
+        }
+
+        // Render Approve/Cancel for a pending write. The token is validated server-side against
+        // the session's pending record; a model cannot trigger this — only a human click can.
+        function renderConfirmation(confirmation) {
+            const wrap = document.createElement('div');
+            wrap.className = 'message bot';
+            wrap.innerHTML =
+                `<div style="margin-bottom:8px;">⚠️ <strong>Approval required.</strong> ${confirmation.summary}</div>`;
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;gap:8px;';
+            const approve = document.createElement('button');
+            approve.textContent = '✅ Approve';
+            approve.style.cssText =
+                'background:#107c10;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;';
+            const cancel = document.createElement('button');
+            cancel.textContent = '✖ Cancel';
+            cancel.style.cssText =
+                'background:#d13438;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;';
+
+            async function decide(decision) {
+                approve.disabled = cancel.disabled = true;
+                showTyping();
+                try {
+                    const resp = await fetch('/api/confirm', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session_id: sessionId, token: confirmation.token, decision }),
+                    });
+                    const data = await resp.json();
+                    hideTyping();
+                    addMessage(data.response || (data.error ? `⚠️ ${data.error}` : 'Done.'), 'bot');
+                } catch (err) {
+                    hideTyping();
+                    addMessage(`⚠️ Connection error: ${err.message}`, 'bot');
+                }
+                row.remove();
+            }
+            approve.onclick = () => decide('approve');
+            cancel.onclick = () => decide('cancel');
+            row.appendChild(approve);
+            row.appendChild(cancel);
+            wrap.appendChild(row);
+            chatContainer.appendChild(wrap);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
         // Re-render the durable conversation for this session after a page reload.
