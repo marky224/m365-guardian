@@ -35,6 +35,7 @@ def _apply(monkeypatch, env, *, clear_keys=()):
         "WEB_APP_PORT",
         "MFA_REQUIRED_GROUP_ID",
         "REPORT_EMAIL_RECIPIENTS",
+        "APPLICATIONINSIGHTS_CONNECTION_STRING",
     ):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
@@ -106,6 +107,16 @@ def test_email_recipients_parsed_as_list(monkeypatch):
     _apply(monkeypatch, env)
     cfg = AppConfig()
     assert cfg.report.email_recipients == ["a@x.com", "b@x.com", "c@x.com"]
+
+
+def test_appinsights_connection_string_read(monkeypatch):
+    _apply(monkeypatch, _VALID_ENV)
+    assert AppConfig().appinsights_connection_string == ""  # unset → telemetry disabled
+
+    env = dict(_VALID_ENV)
+    env["APPLICATIONINSIGHTS_CONNECTION_STRING"] = "InstrumentationKey=xyz"
+    _apply(monkeypatch, env)
+    assert AppConfig().appinsights_connection_string == "InstrumentationKey=xyz"
 
 
 def test_litellm_model_formatting(monkeypatch):
