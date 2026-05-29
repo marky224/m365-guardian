@@ -119,6 +119,14 @@ def test_appinsights_connection_string_read(monkeypatch):
     assert AppConfig().appinsights_connection_string == "InstrumentationKey=xyz"
 
 
+def test_llm_defaults_match_template(monkeypatch):
+    # With nothing set, code defaults must match .env.template's documented default.
+    _apply(monkeypatch, {}, clear_keys=("LLM_MODEL",))
+    cfg = LLMConfig()
+    assert cfg.provider == "xai"
+    assert cfg.model == "grok-4-1-fast-reasoning"
+
+
 def test_litellm_model_formatting(monkeypatch):
     _apply(monkeypatch, {"LLM_PROVIDER": "anthropic", "LLM_MODEL": "claude-x"})
     assert LLMConfig().litellm_model == "anthropic/claude-x"

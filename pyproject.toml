@@ -16,7 +16,6 @@ dependencies = [
     "opentelemetry-instrumentation-aiohttp-server>=0.49b0",
     "msgraph-sdk>=1.2",
     "litellm>=1.30",
-    "semantic-kernel>=1.0",
     "botbuilder-core>=4.14",
     "botbuilder-integration-aiohttp>=4.14",
     "aiohttp>=3.9",
