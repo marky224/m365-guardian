@@ -7,6 +7,7 @@ Includes Entra ID authentication for web routes.
 import hashlib
 import logging
 import os
+import uuid
 
 import msal
 from aiohttp import web
@@ -19,6 +20,12 @@ from botbuilder.schema import Activity
 
 from backend.bot import GuardianBot
 from backend.config import config
+from backend.services.audit_service import AuditService
+from backend.services.graph_service import GraphService
+from backend.services.llm_service import LLMService
+from backend.services.report_service import ReportService
+from backend.services.secret_service import SecretProvider
+from backend.tools.executor import ToolExecutor
 
 # ── Logging ──────────────────────────────────────────────────────────
 
@@ -30,26 +37,23 @@ logging.basicConfig(
 logger = logging.getLogger("m365guardian")
 
 
-# ── Bot Framework Adapter ────────────────────────────────────────────
+# ── Shared service registry keys ─────────────────────────────────────
+# Services are built exactly once in on_startup and stored on the app;
+# handlers read them via request.app[...]. Typed AppKeys keep this
+# mypy-checked and give later work a single place to swap construction.
 
-adapter_settings = BotFrameworkAdapterSettings(
-    app_id=config.bot.app_id,
-    app_password=config.bot.app_password,
-    channel_auth_tenant=config.azure_ad.tenant_id,
-)
-adapter = BotFrameworkAdapter(adapter_settings)
+LLM_KEY: web.AppKey[LLMService] = web.AppKey("llm", LLMService)
+GRAPH_KEY: web.AppKey[GraphService] = web.AppKey("graph", GraphService)
+AUDIT_KEY: web.AppKey[AuditService] = web.AppKey("audit", AuditService)
+REPORT_KEY: web.AppKey[ReportService] = web.AppKey("report_svc", ReportService)
+BOT_KEY: web.AppKey[GuardianBot] = web.AppKey("bot", GuardianBot)
+ADAPTER_KEY: web.AppKey[BotFrameworkAdapter] = web.AppKey("adapter", BotFrameworkAdapter)
 
 
-# Error handler
+# Bot Framework turn-error handler
 async def on_error(context, error):
     logger.error(f"Bot error: {error}")
     await context.send_activity("⚠️ An unexpected error occurred. The incident has been logged.")
-
-
-adapter.on_turn_error = on_error
-
-# Bot instance
-bot = GuardianBot()
 
 
 # ── MSAL Helper ──────────────────────────────────────────────────────
@@ -180,6 +184,8 @@ async def messages(request: Request) -> Response:
     activity = Activity().deserialize(body)
     auth_header = request.headers.get("Authorization", "")
 
+    adapter = request.app[ADAPTER_KEY]
+    bot = request.app[BOT_KEY]
     response = await adapter.process_activity(activity, auth_header, bot.on_turn)
     if response:
         return web.json_response(response.body, status=response.status)
@@ -200,13 +206,6 @@ async def web_chat(request: Request) -> web.StreamResponse:
 
 async def web_api_chat(request: Request) -> Response:
     """REST API endpoint for the web chat interface."""
-    import uuid
-
-    from backend.services.audit_service import AuditService
-    from backend.services.graph_service import GraphService
-    from backend.services.llm_service import LLMService
-    from backend.tools.executor import ToolExecutor
-
     # Get authenticated user from session
     session = await get_session(request)
     user = session.get("user", {})
@@ -216,10 +215,11 @@ async def web_api_chat(request: Request) -> Response:
     session_id = body.get("session_id", str(uuid.uuid4()))
     history = body.get("history", [])
 
-    llm = LLMService()
-    graph = GraphService()
-    audit = AuditService()
-    await audit.initialize()
+    # Shared services are built once at startup; only the executor is
+    # per-request (it is bound to this technician's identity and session).
+    llm = request.app[LLM_KEY]
+    graph = request.app[GRAPH_KEY]
+    audit = request.app[AUDIT_KEY]
 
     executor = ToolExecutor(
         graph=graph,
@@ -250,27 +250,31 @@ async def web_api_chat(request: Request) -> Response:
             }
         )
     except Exception as e:
-        logger.error(f"Web chat error: {e}")
+        error_id = uuid.uuid4().hex[:8]
+        logger.error(f"Web chat error [error_id={error_id}]: {e}")
         return web.json_response(
-            {"error": str(e)},
+            {
+                "error": "An internal error occurred while processing your request.",
+                "error_id": error_id,
+            },
             status=500,
         )
 
 
 async def trigger_report(request: Request) -> Response:
     """Manually trigger the weekly insights report."""
-    from backend.services.graph_service import GraphService
-    from backend.services.report_service import ReportService
-
-    graph = GraphService()
-    report_svc = ReportService(graph)
+    report_svc = request.app[REPORT_KEY]
 
     try:
         report = await report_svc.generate()
         return web.json_response(report)
     except Exception as e:
-        logger.error(f"Report generation failed: {e}")
-        return web.json_response({"error": str(e)}, status=500)
+        error_id = uuid.uuid4().hex[:8]
+        logger.error(f"Report generation failed [error_id={error_id}]: {e}")
+        return web.json_response(
+            {"error": "Report generation failed.", "error_id": error_id},
+            status=500,
+        )
 
 
 # ── App Factory ──────────────────────────────────────────────────────
@@ -278,6 +282,12 @@ async def trigger_report(request: Request) -> Response:
 
 def create_app() -> web.Application:
     """Create and configure the aiohttp application."""
+    # Resolve secrets before anything reads them: Key Vault in prod (KEY_VAULT_URL),
+    # environment/.env locally. hydrate() is synchronous, so it runs here — ahead of
+    # session_setup, which derives the cookie key from the (now hydrated) session_secret.
+    secrets = SecretProvider()
+    secrets.hydrate(config)
+    secrets.close()
     config.ensure_valid()  # fail fast on missing/placeholder configuration
 
     app = web.Application()
@@ -307,11 +317,42 @@ def create_app() -> web.Application:
     if os.path.exists(static_path):
         app.router.add_static("/static/", static_path)
 
-    # Startup tasks
-    async def on_startup(app):
+    # Startup: build every shared service exactly once and stash on the app.
+    async def on_startup(app: web.Application) -> None:
+        llm = LLMService()
+        graph = GraphService()
+        audit = AuditService()
+        await audit.initialize()
+
+        adapter = BotFrameworkAdapter(
+            BotFrameworkAdapterSettings(
+                app_id=config.bot.app_id,
+                app_password=config.bot.app_password,
+                channel_auth_tenant=config.azure_ad.tenant_id,
+            )
+        )
+        adapter.on_turn_error = on_error
+
+        app[LLM_KEY] = llm
+        app[GRAPH_KEY] = graph
+        app[AUDIT_KEY] = audit
+        app[REPORT_KEY] = ReportService(graph)
+        app[BOT_KEY] = GuardianBot(llm=llm, graph=graph, audit=audit)
+        app[ADAPTER_KEY] = adapter
+
         logger.info(f"M365 Guardian started on port {config.web_port}")
 
+    # Cleanup: release the Graph credential transport on shutdown.
+    async def on_cleanup(app: web.Application) -> None:
+        graph = app.get(GRAPH_KEY)
+        if graph is not None:
+            try:
+                graph.close()
+            except Exception as e:  # never raise during shutdown
+                logger.warning(f"Error closing Graph credential: {e}")
+
     app.on_startup.append(on_startup)
+    app.on_cleanup.append(on_cleanup)
 
     return app
 
