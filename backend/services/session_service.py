@@ -21,6 +21,7 @@ from azure.cosmos import ContainerProxy, CosmosClient, PartitionKey
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
 from backend.config import config
+from backend.services.cosmos import make_cosmos_client
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +44,11 @@ class SessionService:
 
     async def initialize(self) -> None:
         """Connect to Cosmos and ensure the sessions container exists. No-op locally."""
-        if not config.cosmos.endpoint or not config.cosmos.key:
+        if not config.cosmos.endpoint:
             logger.warning("Cosmos DB not configured — sessions are in-memory only (lost on restart).")
             return
         try:
-            self._client = CosmosClient(config.cosmos.endpoint, config.cosmos.key)
+            self._client = make_cosmos_client(config.cosmos.endpoint, config.cosmos.key)
             db = self._client.create_database_if_not_exists(config.cosmos.database)
             self._container = db.create_container_if_not_exists(
                 id=config.cosmos.sessions_container,
