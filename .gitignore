@@ -1,0 +1,31 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+.idea/
+*.zip
+node_modules/
+
+build-logs/
+.azure/
+teams-check/
+
+# Tooling caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# Private Claude Code documentation — never push to GitHub
+_private/
+CLAUDE.md
+CLAUDE.local.md
+
+# Claude Code local runtime state
+.claude/

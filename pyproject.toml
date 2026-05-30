@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "m365-guardian"
+version = "0.1.0"
+description = "M365 Guardian — LLM-powered Microsoft 365 user & security management chatbot"
+requires-python = ">=3.11"
+dependencies = [
+    "azure-functions>=1.17",
+    "azure-identity>=1.15",
+    "azure-keyvault-secrets>=4.8",
+    "azure-cosmos>=4.5",
+    "azure-monitor-opentelemetry>=1.6",
+    "opentelemetry-instrumentation-aiohttp-server>=0.49b0",
+    "opentelemetry-instrumentation-httpx>=0.49b0",
+    "msgraph-sdk>=1.2",
+    "litellm>=1.30",
+    "botbuilder-core>=4.14",
+    "botbuilder-integration-aiohttp>=4.14",
+    "aiohttp>=3.9",
+    "pydantic>=2.5",
+    "python-dotenv>=1.0",
+    "jinja2>=3.1",
+    "apscheduler>=3.10",
+    "msal>=1.28",
+    "aiohttp-session[aiohttp]>=2.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+
+# ── Tooling ──────────────────────────────────────────────────────────
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["backend"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = [
+    "B008",   # function call in argument defaults (FastAPI/aiohttp-style patterns)
+    "SIM105", # contextlib.suppress over try/except/pass — clarity preferred here
+]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/tests/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true   # msgraph / botbuilder generated SDKs ship limited stubs
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+files = ["backend"]
+exclude = "backend/tests"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["backend/tests"]
+python_files = ["test_*.py"]

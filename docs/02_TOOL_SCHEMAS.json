@@ -1,0 +1,514 @@
+{
+  "tools": [
+    {
+      "name": "search_users",
+      "description": "Search Entra ID users by display name, email, or UPN. Returns matching users with key attributes.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Free-text term matched against displayName, mail, or userPrincipalName."
+          },
+          "filter": {
+            "type": "string",
+            "description": "Optional OData $filter (used instead of free-text search when provided)."
+          },
+          "select": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional list of user properties to return."
+          },
+          "top": {
+            "type": "integer",
+            "description": "Maximum number of results to return (default 10)."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
+      "name": "get_user_details",
+      "description": "Get a comprehensive profile for one user, optionally including MFA methods and sign-in activity.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User object id or userPrincipalName."
+          },
+          "include_mfa": {
+            "type": "boolean",
+            "description": "Include registered authentication methods (default true)."
+          },
+          "include_sign_in_activity": {
+            "type": "boolean",
+            "description": "Include last sign-in timestamps (default true)."
+          },
+          "include_groups": {
+            "type": "boolean",
+            "description": "Include group memberships (default false)."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "create_user",
+      "description": "Create a new Entra ID user. Requires confirmation before execution.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "description": "Full display name (e.g., 'Jane Doe')."
+          },
+          "mail_nickname": {
+            "type": "string",
+            "description": "Mailbox nickname / alias (e.g., 'jane.doe')."
+          },
+          "user_principal_name": {
+            "type": "string",
+            "description": "Full UPN (e.g., 'jane.doe@contoso.com')."
+          },
+          "password": {
+            "type": "string",
+            "description": "Initial password for the new account."
+          },
+          "force_change_password": {
+            "type": "boolean",
+            "description": "Require password change at next sign-in (default true)."
+          },
+          "account_enabled": {
+            "type": "boolean",
+            "description": "Whether the account is enabled (default true)."
+          },
+          "department": {
+            "type": "string",
+            "description": "Department name."
+          },
+          "job_title": {
+            "type": "string",
+            "description": "Job title."
+          },
+          "usage_location": {
+            "type": "string",
+            "description": "Two-letter usage location, required before assigning licenses (e.g., 'US')."
+          },
+          "license_sku_id": {
+            "type": "string",
+            "description": "Optional license SKU id to assign to the new user."
+          }
+        },
+        "required": [
+          "display_name",
+          "mail_nickname",
+          "user_principal_name",
+          "password"
+        ]
+      }
+    },
+    {
+      "name": "update_user",
+      "description": "Update properties of an existing user. Requires confirmation before execution.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User object id or userPrincipalName."
+          },
+          "updates": {
+            "type": "object",
+            "description": "Map of properties to change. Supported keys: displayName, givenName, surname, jobTitle, department, companyName, officeLocation, mobilePhone, usageLocation, accountEnabled."
+          }
+        },
+        "required": [
+          "user_id",
+          "updates"
+        ]
+      }
+    },
+    {
+      "name": "delete_user",
+      "description": "Soft-delete a user (recoverable for 30 days). Requires confirmation before execution.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User object id or userPrincipalName."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "reset_password",
+      "description": "Reset a user's password. If no password is supplied, a secure one is generated. Requires confirmation.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User object id or userPrincipalName."
+          },
+          "new_password": {
+            "type": "string",
+            "description": "Optional explicit password. If omitted, a secure one is generated."
+          },
+          "force_change_at_next_sign_in": {
+            "type": "boolean",
+            "description": "Require password change at next sign-in (default true)."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "enforce_mfa",
+      "description": "Enforce or relax MFA for a user via group-based Conditional Access (Microsoft-recommended). Adds/removes the user from the MFA-required security group that a Conditional Access policy targets. Requires confirmation before execution.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User object id or userPrincipalName."
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "conditional_access",
+              "conditional_access_recommendation",
+              "per_user_mfa"
+            ],
+            "description": "Enforcement method. 'conditional_access' (default) manages MFA-group membership. 'conditional_access_recommendation' returns setup guidance only. 'per_user_mfa' is legacy and not supported (returns an honest not-implemented result)."
+          },
+          "mfa_state": {
+            "type": "string",
+            "enum": [
+              "enforced",
+              "enabled",
+              "disabled"
+            ],
+            "description": "Direction of the change. 'enforced'/'enabled' add the user to the MFA group; 'disabled' removes them. Default 'enforced'."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "list_available_licenses",
+      "description": "List the tenant's license SKUs with total/consumed/available counts.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "include_disabled": {
+            "type": "boolean",
+            "description": "Include SKUs with no available units (default false)."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "assign_license",
+      "description": "Assign a license SKU to a user. Requires confirmation before execution.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User object id or userPrincipalName."
+          },
+          "sku_id": {
+            "type": "string",
+            "description": "License SKU id to assign."
+          },
+          "disabled_plans": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional list of service plan ids to disable within the SKU."
+          }
+        },
+        "required": [
+          "user_id",
+          "sku_id"
+        ]
+      }
+    },
+    {
+      "name": "remove_license",
+      "description": "Remove a license SKU from a user. Requires confirmation before execution.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User object id or userPrincipalName."
+          },
+          "sku_id": {
+            "type": "string",
+            "description": "License SKU id to remove."
+          }
+        },
+        "required": [
+          "user_id",
+          "sku_id"
+        ]
+      }
+    },
+    {
+      "name": "manage_group_membership",
+      "description": "Add or remove a user from a group. Requires confirmation before execution.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "add",
+              "remove"
+            ],
+            "description": "Membership action."
+          },
+          "user_id": {
+            "type": "string",
+            "description": "User object id or userPrincipalName."
+          },
+          "group_id": {
+            "type": "string",
+            "description": "Target group object id."
+          }
+        },
+        "required": [
+          "action",
+          "user_id",
+          "group_id"
+        ]
+      }
+    },
+    {
+      "name": "manage_shared_mailbox",
+      "description": "Manage a shared mailbox via the Exchange Online PowerShell sidecar. Requires confirmation before execution. If the sidecar is not configured the tool returns not_implemented — relay that, do not claim success.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "delete",
+              "add_member",
+              "remove_member"
+            ],
+            "description": "create/delete the shared mailbox, or add_member/remove_member to grant or revoke access. add_member/remove_member apply both FullAccess and SendAs for each member and require a non-empty members list; create/delete ignore members."
+          },
+          "mailbox_address": {
+            "type": "string",
+            "description": "Shared mailbox email address."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Display name (for create; defaults to the address local-part if omitted)."
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Member UPNs. Required and non-empty for add_member/remove_member."
+          }
+        },
+        "required": [
+          "action",
+          "mailbox_address"
+        ]
+      }
+    },
+    {
+      "name": "manage_distribution_group",
+      "description": "Manage a distribution group via the Exchange Online PowerShell sidecar. Requires confirmation before execution. If the sidecar is not configured the tool returns not_implemented — relay that, do not claim success.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "create",
+              "delete",
+              "add_member",
+              "remove_member"
+            ],
+            "description": "create/delete the distribution group, or add_member/remove_member to change membership. add_member/remove_member require a non-empty members list; create/delete ignore members."
+          },
+          "group_email": {
+            "type": "string",
+            "description": "Distribution group email address."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Display name (for create; defaults to the address local-part if omitted)."
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Member UPNs. Required and non-empty for add_member/remove_member."
+          }
+        },
+        "required": [
+          "action",
+          "group_email"
+        ]
+      }
+    },
+    {
+      "name": "check_mailbox_status",
+      "description": "Check a user's mailbox provisioning, storage, forwarding, and delegation status.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "description": "User object id or userPrincipalName."
+          }
+        },
+        "required": [
+          "user_id"
+        ]
+      }
+    },
+    {
+      "name": "generate_weekly_insights_report",
+      "description": "Run the security checks and compile the weekly insights report.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional subset of check keys to run (defaults to all)."
+          },
+          "lookback_days": {
+            "type": "integer",
+            "description": "Lookback window for sign-in based checks (default 7)."
+          },
+          "dormant_threshold_days": {
+            "type": "integer",
+            "description": "Inactivity threshold for the dormant-accounts check (default 90)."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "send_report_to_teams",
+      "description": "Generate the security report and deliver it to the current Teams conversation. Requires confirmation.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "send_report_via_email",
+      "description": "Email the security report to recipients. Requires confirmation before execution.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "recipients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Recipient email addresses."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "get_audit_log",
+      "description": "Query the M365 Guardian action audit log with optional filters.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "description": "ISO-8601 start of the time range."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "ISO-8601 end of the time range."
+          },
+          "action_type": {
+            "type": "string",
+            "description": "Filter by tool name."
+          },
+          "performed_by": {
+            "type": "string",
+            "description": "Filter by technician email."
+          },
+          "top": {
+            "type": "integer",
+            "description": "Maximum number of entries to return (default 25)."
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "bulk_operation",
+      "description": "Run an operation across many users. Requires confirmation before execution.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "reset_password",
+              "assign_license",
+              "remove_license",
+              "enable_account",
+              "disable_account"
+            ],
+            "description": "Operation to apply to each user."
+          },
+          "user_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "User ids or UPNs to operate on."
+          },
+          "parameters": {
+            "type": "object",
+            "description": "Operation parameters, e.g., {\"sku_id\": \"...\"} for license operations."
+          }
+        },
+        "required": [
+          "operation",
+          "user_ids"
+        ]
+      }
+    }
+  ]
+}
