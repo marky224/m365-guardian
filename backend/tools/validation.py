@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class _ToolArgs(BaseModel):
@@ -115,18 +115,33 @@ class ManageGroupMembershipArgs(_ToolArgs):
     group_id: str
 
 
+_MEMBER_ACTIONS = {"add_member", "remove_member"}
+
+
 class ManageSharedMailboxArgs(_ToolArgs):
-    action: str
+    action: Literal["create", "delete", "add_member", "remove_member"]
     mailbox_address: str
     display_name: str | None = None
     members: list[str] | None = None
 
+    @model_validator(mode="after")
+    def _members_required_for_member_ops(self) -> ManageSharedMailboxArgs:
+        if self.action in _MEMBER_ACTIONS and not self.members:
+            raise ValueError("members must be a non-empty list for add_member/remove_member")
+        return self
+
 
 class ManageDistributionGroupArgs(_ToolArgs):
-    action: str
+    action: Literal["create", "delete", "add_member", "remove_member"]
     group_email: str
     display_name: str | None = None
     members: list[str] | None = None
+
+    @model_validator(mode="after")
+    def _members_required_for_member_ops(self) -> ManageDistributionGroupArgs:
+        if self.action in _MEMBER_ACTIONS and not self.members:
+            raise ValueError("members must be a non-empty list for add_member/remove_member")
+        return self
 
 
 class SendReportToTeamsArgs(_ToolArgs):

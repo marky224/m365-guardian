@@ -23,6 +23,7 @@ from backend.config import config
 from backend.confirmations import resolve_pending_confirmation
 from backend.observability import setup_observability
 from backend.services.audit_service import AuditService
+from backend.services.exo_service import ExoService
 from backend.services.graph_service import GraphService
 from backend.services.llm_service import LLMService
 from backend.services.report_service import ReportService
@@ -52,6 +53,7 @@ SESSION_KEY: web.AppKey[SessionService] = web.AppKey("sessions", SessionService)
 REPORT_KEY: web.AppKey[ReportService] = web.AppKey("report_svc", ReportService)
 BOT_KEY: web.AppKey[GuardianBot] = web.AppKey("bot", GuardianBot)
 ADAPTER_KEY: web.AppKey[CloudAdapter] = web.AppKey("adapter", CloudAdapter)
+EXO_KEY: web.AppKey[ExoService] = web.AppKey("exo", ExoService)
 
 
 # Bot Framework turn-error handler
@@ -292,6 +294,7 @@ async def web_api_chat(request: Request) -> Response:
         technician_id=owner_id,
         technician_email=technician_email,
         mfa_required_group_id=config.security.mfa_required_group_id,
+        exo=request.app.get(EXO_KEY),
     )
 
     try:
@@ -387,6 +390,7 @@ async def web_api_confirm(request: Request) -> Response:
             technician_email=technician_email,
             mfa_required_group_id=config.security.mfa_required_group_id,
             confirmed_fingerprint=fingerprint,
+            exo=request.app.get(EXO_KEY),
         )
 
     message = await resolve_pending_confirmation(
@@ -470,12 +474,26 @@ def create_app() -> web.Application:
         sessions = SessionService()
         await sessions.initialize()
 
+        # EXO PowerShell sidecar client, built only when configured; otherwise the
+        # shared-mailbox / distribution-group tools stay honest-limited.
+        exo = (
+            ExoService(
+                sidecar_url=config.exo.sidecar_url,
+                audience=config.exo.sidecar_audience,
+                managed_identity_client_id=config.exo.managed_identity_client_id,
+            )
+            if config.exo.enabled
+            else None
+        )
+
         app[LLM_KEY] = llm
         app[GRAPH_KEY] = graph
         app[AUDIT_KEY] = audit
         app[SESSION_KEY] = sessions
         app[REPORT_KEY] = ReportService(graph)
-        app[BOT_KEY] = GuardianBot(llm=llm, graph=graph, audit=audit, sessions=sessions)
+        if exo is not None:
+            app[EXO_KEY] = exo
+        app[BOT_KEY] = GuardianBot(llm=llm, graph=graph, audit=audit, sessions=sessions, exo=exo)
 
         # The Teams adapter is built only when bot creds are configured (SingleTenant auth
         # requires them); otherwise /api/messages returns 503 and the web app still runs.
@@ -493,6 +511,13 @@ def create_app() -> web.Application:
                 graph.close()
             except Exception as e:  # never raise during shutdown
                 logger.warning(f"Error closing Graph credential: {e}")
+
+        exo = app.get(EXO_KEY)
+        if exo is not None:
+            try:
+                await exo.close()
+            except Exception as e:  # never raise during shutdown
+                logger.warning(f"Error closing EXO sidecar client: {e}")
 
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)

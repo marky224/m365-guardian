@@ -304,13 +304,19 @@
     },
     {
       "name": "manage_shared_mailbox",
-      "description": "Manage a shared mailbox. Requires confirmation before execution.",
+      "description": "Manage a shared mailbox via the Exchange Online PowerShell sidecar. Requires confirmation before execution. If the sidecar is not configured the tool returns not_implemented — relay that, do not claim success.",
       "input_schema": {
         "type": "object",
         "properties": {
           "action": {
             "type": "string",
-            "description": "Action to perform (e.g., create, add_member, remove_member, list_members)."
+            "enum": [
+              "create",
+              "delete",
+              "add_member",
+              "remove_member"
+            ],
+            "description": "create/delete the shared mailbox, or add_member/remove_member to grant or revoke access. add_member/remove_member apply both FullAccess and SendAs for each member and require a non-empty members list; create/delete ignore members."
           },
           "mailbox_address": {
             "type": "string",
@@ -318,14 +324,14 @@
           },
           "display_name": {
             "type": "string",
-            "description": "Display name (for creation)."
+            "description": "Display name (for create; defaults to the address local-part if omitted)."
           },
           "members": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "Member UPNs (for membership actions)."
+            "description": "Member UPNs. Required and non-empty for add_member/remove_member."
           }
         },
         "required": [
@@ -336,13 +342,19 @@
     },
     {
       "name": "manage_distribution_group",
-      "description": "Manage a distribution group. Requires confirmation before execution.",
+      "description": "Manage a distribution group via the Exchange Online PowerShell sidecar. Requires confirmation before execution. If the sidecar is not configured the tool returns not_implemented — relay that, do not claim success.",
       "input_schema": {
         "type": "object",
         "properties": {
           "action": {
             "type": "string",
-            "description": "Action to perform (e.g., create, add_member, remove_member, list_members)."
+            "enum": [
+              "create",
+              "delete",
+              "add_member",
+              "remove_member"
+            ],
+            "description": "create/delete the distribution group, or add_member/remove_member to change membership. add_member/remove_member require a non-empty members list; create/delete ignore members."
           },
           "group_email": {
             "type": "string",
@@ -350,14 +362,14 @@
           },
           "display_name": {
             "type": "string",
-            "description": "Display name (for creation)."
+            "description": "Display name (for create; defaults to the address local-part if omitted)."
           },
           "members": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "Member UPNs (for membership actions)."
+            "description": "Member UPNs. Required and non-empty for add_member/remove_member."
           }
         },
         "required": [

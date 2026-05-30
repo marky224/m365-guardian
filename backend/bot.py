@@ -12,6 +12,7 @@ from botbuilder.schema import Activity, ActivityTypes, Attachment
 from backend.config import config
 from backend.confirmations import resolve_pending_confirmation
 from backend.services.audit_service import AuditService
+from backend.services.exo_service import ExoService
 from backend.services.graph_service import GraphService
 from backend.services.llm_service import LLMService
 from backend.services.session_service import SessionService
@@ -29,6 +30,7 @@ class GuardianBot(ActivityHandler):
         graph: GraphService,
         audit: AuditService,
         sessions: SessionService,
+        exo: ExoService | None = None,
     ):
         # Services are constructed and initialized once at app startup and
         # injected here, so a single GuardianBot reuses shared clients.
@@ -36,6 +38,7 @@ class GuardianBot(ActivityHandler):
         self.graph = graph
         self.audit = audit
         self.sessions = sessions
+        self.exo = exo
 
     async def on_message_activity(self, turn_context: TurnContext):
         """Handle incoming messages."""
@@ -69,6 +72,7 @@ class GuardianBot(ActivityHandler):
             technician_id=user_id,
             technician_email=user_email,
             mfa_required_group_id=config.security.mfa_required_group_id,
+            exo=self.exo,
         )
 
         # Show typing indicator
@@ -156,6 +160,7 @@ class GuardianBot(ActivityHandler):
                 technician_email=user_email,
                 mfa_required_group_id=config.security.mfa_required_group_id,
                 confirmed_fingerprint=fingerprint,
+                exo=self.exo,
             )
 
         message = await resolve_pending_confirmation(

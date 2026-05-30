@@ -38,6 +38,9 @@ def _apply(monkeypatch, env, *, clear_keys=()):
         "MFA_REQUIRED_GROUP_ID",
         "REPORT_EMAIL_RECIPIENTS",
         "APPLICATIONINSIGHTS_CONNECTION_STRING",
+        "EXO_SIDECAR_URL",
+        "EXO_SIDECAR_AUDIENCE",
+        "EXO_SIDECAR_MANAGED_IDENTITY_CLIENT_ID",
     ):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
@@ -150,6 +153,45 @@ def test_appinsights_connection_string_read(monkeypatch):
     env["APPLICATIONINSIGHTS_CONNECTION_STRING"] = "InstrumentationKey=xyz"
     _apply(monkeypatch, env)
     assert AppConfig().appinsights_connection_string == "InstrumentationKey=xyz"
+
+
+def test_exo_disabled_by_default(monkeypatch):
+    # No EXO_SIDECAR_URL → feature off, no config errors, tools stay honest-limited.
+    _apply(monkeypatch, _VALID_ENV)
+    cfg = AppConfig()
+    assert cfg.exo.enabled is False
+    assert cfg.validate() == []
+
+
+def test_exo_url_requires_audience(monkeypatch):
+    env = dict(_VALID_ENV)
+    env["EXO_SIDECAR_URL"] = "https://sidecar.example.net/api/ManageExchange"
+    _apply(monkeypatch, env)
+    cfg = AppConfig()
+    assert cfg.exo.enabled is True
+    assert any("EXO_SIDECAR_AUDIENCE" in e for e in cfg.validate())
+
+
+def test_exo_url_and_audience_valid(monkeypatch):
+    env = dict(_VALID_ENV)
+    env["EXO_SIDECAR_URL"] = "https://sidecar.example.net/api/ManageExchange"
+    env["EXO_SIDECAR_AUDIENCE"] = "api://exo-sidecar"
+    _apply(monkeypatch, env)
+    cfg = AppConfig()
+    assert cfg.exo.enabled is True
+    assert cfg.validate() == []
+    cfg.ensure_valid()  # must not raise
+
+
+def test_exo_managed_identity_client_id_optional(monkeypatch):
+    # System-assigned MI (no client id) is valid when url + audience are set.
+    env = dict(_VALID_ENV)
+    env["EXO_SIDECAR_URL"] = "https://sidecar.example.net/api/ManageExchange"
+    env["EXO_SIDECAR_AUDIENCE"] = "api://exo-sidecar"
+    _apply(monkeypatch, env)
+    cfg = AppConfig()
+    assert cfg.exo.managed_identity_client_id == ""
+    assert cfg.validate() == []
 
 
 def test_llm_defaults_match_template(monkeypatch):
