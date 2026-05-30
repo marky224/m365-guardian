@@ -91,6 +91,47 @@ az ad app permission admin-consent --id $APP_ID
 
 Alternatively, go to **Azure Portal → Entra ID → App registrations → M365 Guardian → API permissions → Grant admin consent**.
 
+### 1.4 (Recommended for production) Secretless web sign-in via Workload Identity Federation
+
+The MSAL web sign-in can authenticate the confidential client with a **managed-identity
+assertion** instead of `AZURE_CLIENT_SECRET`, so no secret needs to be stored or rotated. This uses
+a **user-assigned managed identity** as a federated identity credential (FIC) on the app
+registration. (Microsoft Graph and Cosmos already use managed identity; this closes the last secret.)
+
+```bash
+# 1. Create a user-assigned managed identity (only user-assigned MIs can be a FIC).
+az identity create --name "id-m365guardian" --resource-group $RESOURCE_GROUP
+
+MI_CLIENT_ID=$(az identity show --name "id-m365guardian" --resource-group $RESOURCE_GROUP --query clientId -o tsv)
+MI_PRINCIPAL_ID=$(az identity show --name "id-m365guardian" --resource-group $RESOURCE_GROUP --query principalId -o tsv)
+
+# 2. Assign it to the App Service (so the app runs as this identity).
+az webapp identity assign \
+  --name "m365guardian-app" --resource-group $RESOURCE_GROUP \
+  --identities $(az identity show --name "id-m365guardian" --resource-group $RESOURCE_GROUP --query id -o tsv)
+
+# 3. Trust the MI on the app registration as a federated identity credential.
+#    subject = the MI's PRINCIPAL (object) id; audience = api://AzureADTokenExchange.
+az ad app federated-credential create --id $APP_ID --parameters "{
+  \"name\": \"m365guardian-msi\",
+  \"issuer\": \"https://login.microsoftonline.com/${AZURE_TENANT_ID}/v2.0\",
+  \"subject\": \"${MI_PRINCIPAL_ID}\",
+  \"audiences\": [\"api://AzureADTokenExchange\"]
+}"
+```
+
+Then set on the App Service: `AZURE_USE_WIF=true` and `AZURE_WIF_MANAGED_IDENTITY_CLIENT_ID=$MI_CLIENT_ID`,
+and **omit `AZURE_CLIENT_SECRET`** (Step 1.2 becomes unnecessary). The `azure-client-secret` Key Vault
+entry is also no longer needed.
+
+Notes:
+- The managed identity and the app registration **must be in the same tenant**. Max **20** federated
+  credentials per app.
+- A wrong `issuer`, `subject`, or `audience` is accepted at creation and **fails only at sign-in
+  time** (token exchange) — verify a real sign-in after configuring.
+- This is the same user-assigned identity to grant the Graph application permissions and the Cosmos
+  data-plane role, so the whole app runs under one secretless identity.
+
 ---
 
 ## Step 2: Create Azure Resources
