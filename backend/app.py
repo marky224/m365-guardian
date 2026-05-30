@@ -15,6 +15,7 @@ from aiohttp.web import Request, Response
 from aiohttp_session import get_session
 from aiohttp_session import setup as session_setup
 from aiohttp_session.cookie_storage import EncryptedCookieStorage
+from azure.identity import ManagedIdentityCredential
 from botbuilder.integration.aiohttp import CloudAdapter, ConfigurationBotFrameworkAuthentication
 
 from backend.bot import GuardianBot
@@ -88,13 +89,42 @@ def _build_cloud_adapter() -> CloudAdapter | None:
 
 # ── MSAL Helper ──────────────────────────────────────────────────────
 
+# Audience for the managed-identity token that is exchanged for an app token under WIF (D-018).
+TOKEN_EXCHANGE_SCOPE = "api://AzureADTokenExchange/.default"
+
+
+def _msal_client_assertion() -> str:
+    """Mint the federated client assertion from the app's user-assigned managed identity.
+
+    Passed to MSAL as a *callable* client_credential, so MSAL invokes it lazily — only when a
+    token request actually hits the wire (the auth-code redemption), not when building the
+    authorization URL. ManagedIdentityCredential is used explicitly (not DefaultAzureCredential,
+    which would treat AZURE_CLIENT_ID — the app registration id — as a user-assigned MI id).
+    """
+    credential = ManagedIdentityCredential(client_id=config.azure_ad.wif_managed_identity_client_id)
+    try:
+        return credential.get_token(TOKEN_EXCHANGE_SCOPE).token
+    finally:
+        credential.close()
+
+
+def _build_msal_client_credential() -> str | dict[str, object]:
+    """Select the confidential-client credential: WIF assertion in prod, secret as the local fallback.
+
+    Under WIF the credential is the managed-identity assertion callable (no stored secret);
+    otherwise the AZURE_CLIENT_SECRET string (local dev / CI), exactly as before.
+    """
+    if config.azure_ad.use_wif:
+        return {"client_assertion": _msal_client_assertion}
+    return config.azure_ad.client_secret
+
 
 def _get_msal_app() -> msal.ConfidentialClientApplication:
     """Create an MSAL confidential client for Entra ID auth."""
     return msal.ConfidentialClientApplication(
         config.azure_ad.client_id,
         authority=f"https://login.microsoftonline.com/{config.azure_ad.tenant_id}",
-        client_credential=config.azure_ad.client_secret,
+        client_credential=_build_msal_client_credential(),
     )
 
 

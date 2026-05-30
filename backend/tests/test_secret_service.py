@@ -111,6 +111,20 @@ def test_kv_error_falls_back_without_raising():
     assert cfg.azure_ad.client_secret == "env-azure-secret"
 
 
+def test_wif_skips_client_secret_hydration():
+    # Under WIF the web sign-in uses a managed-identity assertion, so the azure-client-secret
+    # vault entry is unnecessary and must not overwrite the (blank) env value, even if present.
+    fake = _FakeSecretClient({"azure-client-secret": "kv-azure", "llm-api-key": "kv-llm"})
+    cfg = _config_with_env_sentinels()
+    cfg.azure_ad.use_wif = True
+    cfg.azure_ad.client_secret = ""  # prod under WIF: no secret configured
+
+    SecretProvider(client=fake).hydrate(cfg)
+
+    assert cfg.azure_ad.client_secret == ""  # not hydrated from the vault
+    assert cfg.llm.api_key == "kv-llm"  # other secrets still hydrated
+
+
 def test_close_does_not_close_injected_client():
     fake = _FakeSecretClient({})
     provider = SecretProvider(client=fake)

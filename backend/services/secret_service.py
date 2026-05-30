@@ -10,8 +10,11 @@ Resolves the handful of unavoidable runtime secrets at process startup.
   each falling back to the existing env value if the vault entry is missing.
 
 Graph (app-only) auth uses managed identity directly via ``DefaultAzureCredential``
-in ``GraphService`` and does not pass through here. The MSAL web sign-in client still
-needs the AAD client secret (delegated auth-code flow), so it is hydrated like the rest.
+in ``GraphService`` and does not pass through here. The MSAL web sign-in client needs a
+confidential-client credential for the delegated auth-code flow: under Workload Identity
+Federation (``AZURE_USE_WIF``, D-018) it is a managed-identity assertion, so the
+``azure-client-secret`` vault entry is unnecessary and is skipped; otherwise the AAD client
+secret is hydrated like the rest.
 """
 
 import logging
@@ -50,7 +53,9 @@ class SecretProvider:
             self._credential = DefaultAzureCredential()
             self._client = SecretClient(vault_url=self._vault_url, credential=self._credential)
 
-        cfg.azure_ad.client_secret = self._get("azure-client-secret", cfg.azure_ad.client_secret)
+        # Under WIF the web sign-in uses a managed-identity assertion, so no secret is needed.
+        if not cfg.azure_ad.use_wif:
+            cfg.azure_ad.client_secret = self._get("azure-client-secret", cfg.azure_ad.client_secret)
         cfg.llm.api_key = self._get("llm-api-key", cfg.llm.api_key)
         cfg.bot.app_password = self._get("bot-app-password", cfg.bot.app_password)
         cfg.cosmos.key = self._get("cosmos-key", cfg.cosmos.key)

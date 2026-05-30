@@ -16,11 +16,19 @@ class AzureADConfig:
     tenant_id: str = ""
     client_id: str = ""
     client_secret: str = ""
+    # Workload Identity Federation (WIF) for the MSAL web sign-in (D-018): when true, the
+    # confidential client authenticates with a managed-identity-minted assertion instead of a
+    # secret, so AZURE_CLIENT_SECRET is unnecessary in prod. Only *user-assigned* managed
+    # identities can be a federated identity credential, so the MI client id is then required.
+    use_wif: bool = False
+    wif_managed_identity_client_id: str = ""
 
     def __post_init__(self):
         self.tenant_id = os.getenv("AZURE_TENANT_ID", "")
         self.client_id = os.getenv("AZURE_CLIENT_ID", "")
         self.client_secret = os.getenv("AZURE_CLIENT_SECRET", "")
+        self.use_wif = os.getenv("AZURE_USE_WIF", "").strip().lower() in {"1", "true", "yes"}
+        self.wif_managed_identity_client_id = os.getenv("AZURE_WIF_MANAGED_IDENTITY_CLIENT_ID", "")
 
     def validate(self) -> list[str]:
         errors = []
@@ -28,7 +36,11 @@ class AzureADConfig:
             errors.append("AZURE_TENANT_ID is required")
         if not self.client_id:
             errors.append("AZURE_CLIENT_ID is required")
-        if not self.client_secret:
+        if self.use_wif:
+            # Secretless web sign-in: a user-assigned MI acts as the federated credential.
+            if not self.wif_managed_identity_client_id:
+                errors.append("AZURE_WIF_MANAGED_IDENTITY_CLIENT_ID is required when AZURE_USE_WIF is set")
+        elif not self.client_secret:
             errors.append("AZURE_CLIENT_SECRET is required")
         return errors
 

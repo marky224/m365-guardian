@@ -25,6 +25,8 @@ def _apply(monkeypatch, env, *, clear_keys=()):
         "AZURE_TENANT_ID",
         "AZURE_CLIENT_ID",
         "AZURE_CLIENT_SECRET",
+        "AZURE_USE_WIF",
+        "AZURE_WIF_MANAGED_IDENTITY_CLIENT_ID",
         "LLM_PROVIDER",
         "ANTHROPIC_API_KEY",
         "XAI_API_KEY",
@@ -57,6 +59,37 @@ def test_missing_azure_fields_reported(monkeypatch):
     errors = cfg.validate()
     assert any("AZURE_TENANT_ID" in e for e in errors)
     assert any("AZURE_CLIENT_ID" in e for e in errors)
+
+
+def test_wif_does_not_require_client_secret(monkeypatch):
+    # With WIF on and the user-assigned MI client id set, the client secret is unnecessary.
+    env = dict(_VALID_ENV)
+    del env["AZURE_CLIENT_SECRET"]
+    env["AZURE_USE_WIF"] = "true"
+    env["AZURE_WIF_MANAGED_IDENTITY_CLIENT_ID"] = "mi-client-id"
+    _apply(monkeypatch, env)
+    cfg = AppConfig()
+    assert cfg.azure_ad.use_wif is True
+    assert cfg.validate() == []
+    cfg.ensure_valid()  # must not raise
+
+
+def test_wif_requires_managed_identity_client_id(monkeypatch):
+    # WIF on but no MI client id → the federated credential can't be resolved.
+    env = dict(_VALID_ENV)
+    del env["AZURE_CLIENT_SECRET"]
+    env["AZURE_USE_WIF"] = "true"
+    _apply(monkeypatch, env)
+    errors = AppConfig().validate()
+    assert any("AZURE_WIF_MANAGED_IDENTITY_CLIENT_ID" in e for e in errors)
+
+
+def test_secret_required_when_wif_off(monkeypatch):
+    # WIF off (default) keeps the existing rule: the client secret is mandatory.
+    _apply(monkeypatch, _VALID_ENV, clear_keys=("AZURE_CLIENT_SECRET",))
+    cfg = AppConfig()
+    assert cfg.azure_ad.use_wif is False
+    assert any("AZURE_CLIENT_SECRET" in e for e in cfg.validate())
 
 
 def test_missing_llm_key_reported(monkeypatch):
