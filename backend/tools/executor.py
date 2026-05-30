@@ -18,6 +18,7 @@ from backend.tools.validation import TOOL_ARG_MODELS
 
 if TYPE_CHECKING:
     from backend.services.audit_service import AuditService
+    from backend.services.exo_service import ExoService
     from backend.services.graph_service import GraphService
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,7 @@ class ToolExecutor:
         technician_email: str = "",
         mfa_required_group_id: str = "",
         confirmed_fingerprint: str | None = None,
+        exo: ExoService | None = None,
     ):
         self.graph = graph
         self.audit = audit
@@ -71,6 +73,8 @@ class ToolExecutor:
         # grant the *handler* set after validating a human approval (button/token) against
         # durable session state — the model's `confirm` flag no longer authorizes anything.
         self.confirmed_fingerprint = confirmed_fingerprint
+        # EXO PowerShell sidecar client; None keeps shared-mailbox / dist-group honest-limited.
+        self.exo = exo
         # Set when a write is proposed but not yet approved; the handler reads this to persist
         # the pending record and render the Approve/Cancel UI. The token is never returned to
         # the model (the model cannot self-approve even if prompt-injected).
@@ -420,35 +424,65 @@ class ToolExecutor:
         }
 
     async def _manage_shared_mailbox(self, args: dict) -> dict:
-        # Honest limitation: shared-mailbox management is not exposed by Microsoft
-        # Graph. It requires Exchange Online PowerShell (app-only certificate auth),
-        # which this service does not yet run. We return not_implemented rather than
-        # a fake success so the technician is never told a change happened when it did not.
+        # Shared-mailbox management isn't exposed by Microsoft Graph; it requires the EXO
+        # PowerShell sidecar. When the sidecar isn't configured we return not_implemented
+        # rather than a fake success, so the technician is never told a change happened
+        # when it did not.
+        if self.exo is None:
+            return {
+                "success": False,
+                "not_implemented": True,
+                "action": args["action"],
+                "mailbox_address": args.get("mailbox_address"),
+                "reason": (
+                    "Shared mailbox management requires the Exchange Online PowerShell sidecar, "
+                    "which is not configured (EXO_SIDECAR_URL unset). Perform this in the Exchange "
+                    "admin center, or ask an admin to deploy and configure the sidecar."
+                ),
+            }
+        action = args["action"]
+        address = args["mailbox_address"]
+        if action == "create":
+            return await self.exo.create_shared_mailbox(address, args.get("display_name"))
+        if action == "delete":
+            return await self.exo.delete_shared_mailbox(address)
+        if action == "add_member":
+            return await self.exo.add_shared_mailbox_member(address, args["members"])
+        if action == "remove_member":
+            return await self.exo.remove_shared_mailbox_member(address, args["members"])
         return {
-            "success": False,
-            "not_implemented": True,
-            "action": args["action"],
-            "mailbox_address": args.get("mailbox_address"),
-            "reason": (
-                "Shared mailbox management is not available via Microsoft Graph. It requires "
-                "Exchange Online PowerShell (planned: an app-only EXO PowerShell sidecar). "
-                "Perform this in the Exchange admin center for now."
-            ),
+            "error": f"Unsupported shared mailbox action: {action}",
+            "supported_actions": ["create", "delete", "add_member", "remove_member"],
         }
 
     async def _manage_dist_group(self, args: dict) -> dict:
-        # Honest limitation: distribution groups are read-only in Microsoft Graph and
-        # cannot be created/modified there — Exchange Online PowerShell is required.
+        # Distribution groups are read-only in Microsoft Graph; managing them requires the
+        # EXO PowerShell sidecar. Honest-limited when the sidecar isn't configured.
+        if self.exo is None:
+            return {
+                "success": False,
+                "not_implemented": True,
+                "action": args["action"],
+                "group_email": args.get("group_email"),
+                "reason": (
+                    "Distribution group management requires the Exchange Online PowerShell sidecar, "
+                    "which is not configured (EXO_SIDECAR_URL unset). Perform this in the Exchange "
+                    "admin center, or ask an admin to deploy and configure the sidecar."
+                ),
+            }
+        action = args["action"]
+        email = args["group_email"]
+        if action == "create":
+            return await self.exo.create_distribution_group(email, args.get("display_name"))
+        if action == "delete":
+            return await self.exo.delete_distribution_group(email)
+        if action == "add_member":
+            return await self.exo.add_distribution_group_member(email, args["members"])
+        if action == "remove_member":
+            return await self.exo.remove_distribution_group_member(email, args["members"])
         return {
-            "success": False,
-            "not_implemented": True,
-            "action": args["action"],
-            "group_email": args.get("group_email"),
-            "reason": (
-                "Distribution group management is not available via Microsoft Graph (groups are "
-                "read-only there). It requires Exchange Online PowerShell (planned: an app-only "
-                "EXO PowerShell sidecar). Perform this in the Exchange admin center for now."
-            ),
+            "error": f"Unsupported distribution group action: {action}",
+            "supported_actions": ["create", "delete", "add_member", "remove_member"],
         }
 
     async def _check_mailbox(self, args: dict) -> dict:

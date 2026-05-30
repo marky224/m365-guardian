@@ -44,11 +44,12 @@ class _FakeReport:
 
 
 class _FakeBot:
-    def __init__(self, llm, graph, audit, sessions):
+    def __init__(self, llm, graph, audit, sessions, exo=None):
         self.llm = llm
         self.graph = graph
         self.audit = audit
         self.sessions = sessions
+        self.exo = exo
 
 
 class _FakeAdapter:

@@ -307,6 +307,86 @@ Apply the same environment variables as the main app (Step 3).
 
 ---
 
+## Step 5b: Deploy the Exchange Online PowerShell sidecar (optional)
+
+Shared mailboxes and distribution groups are not manageable via Microsoft Graph; they
+require Exchange Online PowerShell. The `exo-sidecar/` PowerShell Azure Function exposes a
+narrow, audited HTTP API the app calls for these operations. **Until it is deployed and
+`EXO_SIDECAR_URL` is set, `manage_shared_mailbox` / `manage_distribution_group` stay
+honest-limited (they return `not_implemented`).** The whole path is secretless — no
+function key — following the same managed-identity pattern as web sign-in (§1.4).
+
+### 5b.1 Create the Function App (PowerShell)
+
+```bash
+az functionapp create \
+  --name "m365guardian-exo" \
+  --resource-group $RESOURCE_GROUP \
+  --consumption-plan-location $LOCATION \
+  --runtime powershell \
+  --runtime-version 7.4 \
+  --functions-version 4 \
+  --os-type Linux \
+  --storage-account "m365guardianstore"
+
+# Tenant for Connect-ExchangeOnline (and optional user-assigned MI client id).
+az functionapp config appsettings set --name "m365guardian-exo" --resource-group $RESOURCE_GROUP \
+  --settings EXO_ORGANIZATION="${TENANT_DOMAIN}"   # e.g. contoso.onmicrosoft.com
+```
+
+### 5b.2 Give the sidecar's managed identity Exchange rights (hop 2)
+
+```bash
+# Enable a system-assigned managed identity on the Function (or assign a user-assigned one).
+EXO_MI_PRINCIPAL=$(az functionapp identity assign \
+  --name "m365guardian-exo" --resource-group $RESOURCE_GROUP --query principalId -o tsv)
+
+# Grant the Exchange.ManageAsApp app role (Office 365 Exchange Online, appId
+# 00000002-0000-0ff1-ce00-000000000000; Exchange.ManageAsApp role id below), then assign
+# the Exchange Administrator directory role to EXO_MI_PRINCIPAL in Entra (Roles & admins).
+# Admin consent is required for the app role. Exchange.ManageAsApp role id:
+#   dc50a0fb-09a3-484d-be87-e023b12c6440
+```
+
+Assign the **Exchange Administrator** directory role to `EXO_MI_PRINCIPAL`
+(Entra ID → Roles and administrators → Exchange Administrator → Add assignment). The
+managed identity and your tenant must be the same tenant.
+
+### 5b.3 Lock the Function behind Easy Auth (hop 1)
+
+The function binding is `authLevel=anonymous`; **App Service Authentication ("Easy Auth")
+is the gate** — it validates the caller's AAD token against this Function's audience. Do
+**not** use a function key (a stored secret defeats the secretless design).
+
+1. Create (or reuse) an app registration for the sidecar; note its **Application ID URI**
+   (e.g. `api://m365guardian-exo`) — this is `EXO_SIDECAR_AUDIENCE`.
+2. Function App → **Authentication** → add **Microsoft** as identity provider, using that
+   app registration; set it to **require authentication** (return 401 unauthenticated).
+
+### 5b.4 Let the app call the sidecar + publish
+
+```bash
+# Publish the PowerShell function (installs ExchangeOnlineManagement via managed deps).
+cd exo-sidecar && func azure functionapp publish m365guardian-exo && cd ..
+
+# Point the main app at the sidecar.
+az webapp config appsettings set --name "m365guardian-app" --resource-group $RESOURCE_GROUP \
+  --settings \
+    EXO_SIDECAR_URL="https://m365guardian-exo.azurewebsites.net/api/ManageExchange" \
+    EXO_SIDECAR_AUDIENCE="api://m365guardian-exo"
+```
+
+The main app's managed identity mints a token for `EXO_SIDECAR_AUDIENCE` automatically; no
+secret is stored. If the main app uses a user-assigned MI, set
+`EXO_SIDECAR_MANAGED_IDENTITY_CLIENT_ID` to its client id.
+
+> **Verify in a real tenant.** Like the WIF round-trip (§1.4), the two-hop EXO path is not
+> locally verifiable. A wrong audience or a missing Exchange role saves without error and
+> fails only at call time. After deploying, ask the bot to add a member to a shared mailbox
+> and confirm the change in the Exchange admin center.
+
+---
+
 ## Step 6: Install the Teams App
 
 ### 6.1 Create the Teams App Manifest

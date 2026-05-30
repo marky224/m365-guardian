@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 from backend.tools.executor import ToolExecutor
 
 
-def _make_executor(mfa_required_group_id="", confirmed_fingerprint=None):
+def _make_executor(mfa_required_group_id="", confirmed_fingerprint=None, exo=None):
     graph = AsyncMock()
     audit = AsyncMock()
     executor = ToolExecutor(
@@ -22,6 +22,7 @@ def _make_executor(mfa_required_group_id="", confirmed_fingerprint=None):
         technician_email="tech@contoso.com",
         mfa_required_group_id=mfa_required_group_id,
         confirmed_fingerprint=confirmed_fingerprint,
+        exo=exo,
     )
     return executor, graph, audit
 
@@ -219,3 +220,92 @@ async def test_distribution_group_is_honest_not_implemented():
     assert result["success"] is False
     assert result["not_implemented"] is True
     assert not graph.method_calls
+
+
+# ── EXO sidecar-backed shared mailbox / distribution group ───────────
+
+
+async def test_shared_mailbox_create_dispatches_to_sidecar():
+    exo = AsyncMock()
+    exo.create_shared_mailbox.return_value = {"success": True, "operation": "create_shared_mailbox"}
+    executor, graph, _ = _make_executor(exo=exo)
+
+    result = await _execute_confirmed(
+        executor,
+        "manage_shared_mailbox",
+        {"action": "create", "mailbox_address": "team@contoso.com", "display_name": "Team"},
+    )
+
+    exo.create_shared_mailbox.assert_awaited_once_with("team@contoso.com", "Team")
+    assert result["success"] is True
+    assert not graph.method_calls  # the sidecar handles it, not Graph
+
+
+async def test_shared_mailbox_add_member_dispatches_to_sidecar():
+    exo = AsyncMock()
+    exo.add_shared_mailbox_member.return_value = {"success": True}
+    executor, _, _ = _make_executor(exo=exo)
+
+    await _execute_confirmed(
+        executor,
+        "manage_shared_mailbox",
+        {"action": "add_member", "mailbox_address": "team@contoso.com", "members": ["a@contoso.com"]},
+    )
+
+    exo.add_shared_mailbox_member.assert_awaited_once_with("team@contoso.com", ["a@contoso.com"])
+
+
+async def test_distribution_group_remove_member_dispatches_to_sidecar():
+    exo = AsyncMock()
+    exo.remove_distribution_group_member.return_value = {"success": True}
+    executor, _, _ = _make_executor(exo=exo)
+
+    await _execute_confirmed(
+        executor,
+        "manage_distribution_group",
+        {"action": "remove_member", "group_email": "all@contoso.com", "members": ["a@contoso.com"]},
+    )
+
+    exo.remove_distribution_group_member.assert_awaited_once_with("all@contoso.com", ["a@contoso.com"])
+
+
+async def test_member_op_without_members_fails_validation_before_sidecar():
+    # add_member/remove_member require a non-empty members list (model_validator). The call
+    # fails validation BEFORE the gate, so the sidecar is never touched.
+    exo = AsyncMock()
+    executor, _, _ = _make_executor(exo=exo)
+
+    result = await executor.execute(
+        "manage_shared_mailbox",
+        {"action": "add_member", "mailbox_address": "team@contoso.com"},
+    )
+
+    assert result["error"] == "invalid_arguments"
+    exo.add_shared_mailbox_member.assert_not_called()
+
+
+async def test_invalid_shared_mailbox_action_fails_validation():
+    # An action outside the Literal enum is rejected by validation, never reaching the handler.
+    exo = AsyncMock()
+    executor, _, _ = _make_executor(exo=exo)
+
+    result = await executor.execute(
+        "manage_shared_mailbox",
+        {"action": "archive", "mailbox_address": "team@contoso.com"},
+    )
+
+    assert result["error"] == "invalid_arguments"
+    assert not exo.method_calls
+
+
+async def test_shared_mailbox_unsupported_action_handler_fallback():
+    # Defense-in-depth: if an unknown action somehow reaches the handler (bypassing validation),
+    # it returns a structured error and never calls the sidecar.
+    exo = AsyncMock()
+    executor, _, _ = _make_executor(exo=exo)
+
+    result = await executor._manage_shared_mailbox({"action": "archive", "mailbox_address": "team@contoso.com"})
+
+    assert "error" in result
+    assert "create" in result["supported_actions"]
+    assert not exo.method_calls

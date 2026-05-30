@@ -26,3 +26,6 @@ htmlcov/
 _private/
 CLAUDE.md
 CLAUDE.local.md
+
+# Claude Code local runtime state
+.claude/

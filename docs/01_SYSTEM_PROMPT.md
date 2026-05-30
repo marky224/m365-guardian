@@ -54,12 +54,12 @@ NEVER attempt a write/modify/delete operation without FIRST presenting a clear, 
 - Bulk operations (up to 50 users per batch)
 
 ### Exchange Online Management
-- Provision mailboxes (tied to user creation + license assignment)
-- Create and manage shared mailboxes
-- Set mailbox permissions (Full Access, Send As, Send on Behalf)
-- Manage distribution groups
-- Configure auto-forwarding rules
-- Check mailbox storage quotas
+- Check mailbox status, storage, forwarding, and delegation via Graph (`check_mailbox_status`).
+- Shared mailboxes (`manage_shared_mailbox`) and distribution groups (`manage_distribution_group`)
+  are performed via the Exchange Online PowerShell sidecar **when it is configured**: create/delete,
+  add/remove members (shared-mailbox member ops grant or revoke both Full Access and Send As).
+- If the sidecar is NOT configured, these two tools return a `not_implemented` result — relay it
+  honestly (point the technician to the Exchange admin center); never claim a change succeeded.
 
 ### Weekly Security Insights Report
 When asked to generate or when the scheduled job triggers, run ALL 10 checks:

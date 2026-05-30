@@ -141,6 +141,32 @@ class SecurityConfig:
 
 
 @dataclass
+class ExoConfig:
+    # Exchange Online PowerShell sidecar (optional). When sidecar_url is set, the
+    # shared-mailbox / distribution-group tools call the sidecar; otherwise they stay
+    # honest-limited (not_implemented). Auth is secretless: the app's managed identity
+    # mints a token for sidecar_audience (the sidecar's Easy Auth app registration).
+    sidecar_url: str = ""
+    sidecar_audience: str = ""
+    managed_identity_client_id: str = ""
+
+    def __post_init__(self):
+        self.sidecar_url = os.getenv("EXO_SIDECAR_URL", "")
+        self.sidecar_audience = os.getenv("EXO_SIDECAR_AUDIENCE", "")
+        self.managed_identity_client_id = os.getenv("EXO_SIDECAR_MANAGED_IDENTITY_CLIENT_ID", "")
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.sidecar_url)
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+        if self.sidecar_url and not self.sidecar_audience:
+            errors.append("EXO_SIDECAR_AUDIENCE is required when EXO_SIDECAR_URL is set")
+        return errors
+
+
+@dataclass
 class AppConfig:
     azure_ad: AzureADConfig = field(default_factory=AzureADConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
@@ -148,6 +174,7 @@ class AppConfig:
     bot: BotConfig = field(default_factory=BotConfig)
     report: ReportConfig = field(default_factory=ReportConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
+    exo: ExoConfig = field(default_factory=ExoConfig)
     web_port: int = 8080
     base_url: str = ""
     log_level: str = "INFO"
@@ -169,6 +196,7 @@ class AppConfig:
             errors.append(f"API key is required for LLM_PROVIDER={self.llm.provider}")
         if self.session_secret == "change-me-in-production":
             errors.append("SESSION_SECRET must be set for production")
+        errors += self.exo.validate()
         return errors
 
     def ensure_valid(self) -> None:
