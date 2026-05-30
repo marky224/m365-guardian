@@ -152,9 +152,15 @@ M365 Guardian runs on Azure with platform-managed identity and secrets. Every fe
 - **Managed identity for Cosmos** — leave `COSMOS_KEY` blank in production and the app authenticates
   to Cosmos with managed identity (AAD RBAC); grant the identity a Cosmos data-plane role. Set the key
   for local dev / the emulator.
+- **Secretless web sign-in (WIF)** — set `AZURE_USE_WIF=true` and the MSAL web sign-in authenticates
+  with a user-assigned managed-identity assertion instead of `AZURE_CLIENT_SECRET`. Configure the
+  identity as a federated identity credential on the app registration and set
+  `AZURE_WIF_MANAGED_IDENTITY_CLIENT_ID` (see `docs/03_DEPLOYMENT_GUIDE.md`). The client secret is kept
+  as the local-dev/CI fallback.
 - **Key Vault for secrets** — set `KEY_VAULT_URL` and the app fetches `azure-client-secret`,
   `llm-api-key`, `bot-app-password`, `cosmos-key`, and `session-secret` from Key Vault at startup via
-  managed identity. With it unset, secrets come from the environment / `.env` (local dev).
+  managed identity. With it unset, secrets come from the environment / `.env` (local dev). Under WIF
+  (above) and Cosmos managed identity, `azure-client-secret` and `cosmos-key` are unnecessary in prod.
 - **Durable sessions** — conversation history is stored in the Cosmos `sessions` container (partition
   key `/owner_id`, 30-day TTL), so sessions survive restarts and scale across instances. History is
   scoped to the authenticated user.
