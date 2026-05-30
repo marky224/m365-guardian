@@ -202,8 +202,8 @@ Assign via: **Entra ID → Roles and administrators → Helpdesk Administrator �
 | `assign_license` | Write | Assign license to user |
 | `remove_license` | Write | Remove license from user |
 | `manage_group_membership` | Write | Add/remove group members |
-| `manage_shared_mailbox` | Write | ⏳ Not yet implemented — requires Exchange Online PowerShell (see [docs/05_EXCHANGE_ONLINE_INTEGRATION.md](docs/05_EXCHANGE_ONLINE_INTEGRATION.md)) |
-| `manage_distribution_group` | Write | ⏳ Not yet implemented — requires Exchange Online PowerShell (see [docs/05_EXCHANGE_ONLINE_INTEGRATION.md](docs/05_EXCHANGE_ONLINE_INTEGRATION.md)) |
+| `manage_shared_mailbox` | Write | Create/delete shared mailboxes and manage Full Access + Send As — via the [Exchange Online PowerShell sidecar](exo-sidecar/) when configured, else honest-limited |
+| `manage_distribution_group` | Write | Create/delete distribution groups and manage members — via the [Exchange Online PowerShell sidecar](exo-sidecar/) when configured, else honest-limited |
 | `check_mailbox_status` | Read | Check mailbox provisioning + forwarding |
 | `generate_weekly_insights_report` | Read | Run all 10 security checks |
 | `send_report_to_teams` | Write | Post Adaptive Card to Teams |

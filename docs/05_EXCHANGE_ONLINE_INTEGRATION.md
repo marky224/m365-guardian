@@ -2,9 +2,12 @@
 
 ## Status
 
-`manage_shared_mailbox` and `manage_distribution_group` are **not implemented**.
-They return a structured `not_implemented` result (never a fake success) so the
-chatbot never tells a technician a change happened when it did not.
+`manage_shared_mailbox` and `manage_distribution_group` are **implemented via the
+EXO PowerShell sidecar** (`exo-sidecar/`): when `EXO_SIDECAR_URL` is configured they
+perform real Exchange operations; when it is not, they return a structured
+`not_implemented` result (never a fake success) so the chatbot never tells a
+technician a change happened when it did not. The recommended sidecar approach
+below is now built — see `exo-sidecar/README.md` and the deployment guide §5b.
 
 ## Why Graph can't do it
 
@@ -27,7 +30,13 @@ mailboxes, and distribution groups / mail-enabled security groups are
 | Mailbox status (provisioning, automatic replies) | `GET /users/{id}/mailboxSettings` |
 | Forwarding rules | `GET /users/{id}/mailFolders/inbox/messageRules` |
 
-## Recommended future approach: an app-only EXO PowerShell sidecar
+## The EXO PowerShell sidecar (built — D-019)
+
+> **Status: implemented.** The design below is what shipped. Code: `exo-sidecar/`
+> (the PowerShell Function) and `backend/services/exo_service.py` (the async client).
+> Deploy steps: `docs/03_DEPLOYMENT_GUIDE.md` §5b. The app→sidecar hop is secretless
+> (the app's managed identity mints a token for the Function's Easy Auth audience —
+> no function key), and the sidecar→Exchange hop uses `Connect-ExchangeOnline -ManagedIdentity`.
 
 A small **PowerShell Azure Function** (or container) the Python service calls
 over an internal authenticated endpoint:
@@ -44,4 +53,5 @@ over an internal authenticated endpoint:
 4. The Python `ToolExecutor` calls the sidecar; the existing confirmation gate
    and audit logging apply unchanged.
 
-Until that sidecar exists, these operations stay honest-limited.
+When the sidecar is not configured (`EXO_SIDECAR_URL` unset), these operations stay
+honest-limited (`not_implemented`).
